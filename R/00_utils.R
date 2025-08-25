@@ -34,15 +34,30 @@
       as.integer(nchar(paste(text, collapse = " ")) / 4)
     }
 
-    #' Call LLM with JSON guard
+    #' Call LLM with structured-output guard (LLMR >= 0.6.0)
+    #' @param config an LLMR llm_config
+    #' @param messages normalized messages for provider
+    #' @param json_flag logical: if TRUE, request JSON object via enable_structured_output(); if FALSE, plain text
+    #' @param schema optional JSON Schema (R list) to enforce structured output when provider supports it
+    #' @param strict logical: pass strict=TRUE to enable_structured_output for OpenAI-compatible providers
     #' @keywords internal
     #' @noRd
-    .call_llm_guarded <- function(config, messages, json_flag = TRUE) {
-      jf <- isTRUE(json_flag)
-      res <- try(LLMR::call_llm_robust(config = config, messages = messages, json = jf), silent = TRUE)
-      if (inherits(res, "try-error") && jf) {
-        .rl("call_llm_robust failed with json=TRUE; retrying with json=FALSE")
-        res <- LLMR::call_llm_robust(config = config, messages = messages, json = FALSE)
+    .call_llm_guarded <- function(config, messages, json_flag = TRUE, schema = NULL, strict = TRUE) {
+      cfg2 <- config
+      if (isTRUE(json_flag)) {
+        # if schema is provided and is a list, pass it; otherwise request generic JSON object
+        cfg2 <- tryCatch({
+          if (!requireNamespace("LLMR", quietly = TRUE)) stop("Package 'LLMR' not available.")
+          LLMR::enable_structured_output(config, schema = schema, strict = isTRUE(strict))
+        }, error = function(e) {
+          .rl("enable_structured_output failed: ", conditionMessage(e), "; proceeding without provider toggle.")
+          config
+        })
+      }
+      res <- try(LLMR::call_llm_robust(config = cfg2, messages = messages), silent = TRUE)
+      if (inherits(res, "try-error") && isTRUE(json_flag)) {
+        .rl("Structured-output call failed; retrying without structured output.")
+        res <- LLMR::call_llm_robust(config = config, messages = messages)
       }
       res
     }

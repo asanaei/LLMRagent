@@ -85,9 +85,31 @@ json_reply <- agent_reply(
   json = TRUE
 )
 
-# Parse the response
-parsed <- jsonlite::fromJSON(json_reply)
-print(parsed)
+# Robustly parse structured output
+parsed <- LLMR::llm_parse_structured(json_reply)
+str(parsed)
+```
+
+Schema Mode (optional): You can ask the agent for schema-validated JSON. Under the hood LLMR toggles provider-specific controls.
+
+```r
+schema <- list(
+  type = "object",
+  properties = list(
+    answer = list(type = "string"),
+    confidence = list(type = "number")
+  ),
+  required = list("answer","confidence"),
+  additionalProperties = FALSE
+)
+json_reply2 <- agent_reply(
+  agent,
+  "Return answer and confidence (0..1) about: Why is the sky blue?",
+  json   = TRUE,
+  schema = schema
+)
+parsed2 <- LLMR::llm_parse_structured(json_reply2)
+str(parsed2)
 ```
 
 ## Token Usage Tracking

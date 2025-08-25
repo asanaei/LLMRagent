@@ -31,12 +31,32 @@ if (requireNamespace("LLMR", quietly = TRUE)) {
 
     # Try to parse the JSON
     tryCatch({
-      parsed <- jsonlite::fromJSON(reply)
-      cat("\nSuccessfully parsed JSON:\n")
-      print(parsed)
+      parsed <- LLMR::llm_parse_structured(reply)
+      cat("\nParsed structured JSON:\n")
+      str(parsed)
     }, error = function(e) {
-      cat("\nNote: Response may not be valid JSON:", e$message, "\n")
+      cat("\nNote: Could not robustly parse JSON:", e$message, "\n")
     })
+
+    # Optional: Schema mode
+    schema <- list(
+      type = "object",
+      properties = list(
+        name = list(type = "string"),
+        year = list(type = "integer")
+      ),
+      required = list("name","year"),
+      additionalProperties = FALSE
+    )
+
+    reply2 <- agent_reply(
+      agent,
+      "For 'R programming language', return {name, year} as JSON.",
+      json   = TRUE,
+      schema = schema
+    )
+    cat("\nSchema-enforced JSON:\n", reply2, "\n", sep = "")
+    str(LLMR::llm_parse_structured(reply2))
 
   } else {
     cat("OPENAI_API_KEY not set. Set it to test JSON mode.\n")

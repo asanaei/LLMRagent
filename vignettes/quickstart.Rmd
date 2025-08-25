@@ -25,7 +25,7 @@ interface to create AI agents using LLMR model configurations.
 ## Key Features
 
 - **Direct LLMR Integration**: Uses `LLMR::llm_config()` directly
-- **JSON Mode by Default**: Supports structured responses  
+- **JSON Mode by Default**: Structured output requested via LLMR provider switches; schema mode optional  
 - **Memory Management**: Built-in conversation history
 - **No Complex Adapters**: Clean, simple interface
 
@@ -86,12 +86,35 @@ if (requireNamespace("LLMR", quietly = TRUE) &&
   
   # Try parsing the JSON
   tryCatch({
-    parsed <- jsonlite::fromJSON(reply2)
+    parsed <- LLMR::llm_parse_structured(reply2)
     cat("Parsed JSON structure:\n")
-    print(parsed)
+    str(parsed)
   }, error = function(e) {
     cat("JSON parsing note:", e$message, "\n")
   })
+  
+  # === Schema Mode (Optional) ===
+  cat("=== Schema Mode Example ===\n")
+  schema <- list(
+    type = "object",
+    properties = list(
+      answer     = list(type = "string"),
+      confidence = list(type = "number")
+    ),
+    required = list("answer","confidence"),
+    additionalProperties = FALSE
+  )
+  reply3 <- agent_reply(agent,
+    "Return answer and a confidence in [0,1] about: Capital of Japan?",
+    json   = TRUE,
+    schema = schema
+  )
+  parsed3 <- LLMR::llm_parse_structured(reply3)
+  cat("Agent (schema-enforced JSON):", reply3, "\n\n")
+  if (!is.null(parsed3)) {
+    cat("Parsed JSON:\n")
+    str(parsed3)
+  }
   
 } else {
   cat("API key not available. Set OPENAI_API_KEY to see live examples.\n")

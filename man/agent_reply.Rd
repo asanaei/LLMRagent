@@ -4,7 +4,14 @@
 \alias{agent_reply}
 \title{Ask the agent to reply}
 \usage{
-agent_reply(agent, user_text, json = TRUE)
+agent_reply(
+  agent,
+  user_text,
+  json = TRUE,
+  schema = NULL,
+  strict = TRUE,
+  return_object = FALSE
+)
 }
 \arguments{
 \item{agent}{Agent created by \code{new_agent()}.}
@@ -12,6 +19,13 @@ agent_reply(agent, user_text, json = TRUE)
 \item{user_text}{Character scalar user input.}
 
 \item{json}{Logical; if TRUE (default) request JSON-structured output when supported.}
+
+\item{schema}{Optional JSON Schema (R list) to enforce structured output when \code{json = TRUE}.
+If \code{NULL} and \code{json = TRUE}, the agent requests a generic JSON object via provider-appropriate toggles.}
+
+\item{strict}{Logical; when \code{schema} is supplied on OpenAI-compatible providers, pass \code{strict = TRUE} by default.}
+
+\item{return_object}{Logical; if TRUE, return the underlying \code{LLMR::llmr_response} object instead of character text.}
 }
 \value{
 Character scalar assistant reply.

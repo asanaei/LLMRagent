@@ -84,7 +84,7 @@
         resp <- .call_llm_guarded(
           config = cfg,
           messages = full_msgs,
-          json_flag = TRUE
+          json_flag = FALSE
         )
         # Extract text consistently
         out <- if (is.character(resp)) resp[1] else if (is.list(resp) && !is.null(resp$text)) as.character(resp$text)[1] else if (is.list(resp) && !is.null(resp$content)) as.character(resp$content)[1] else as.character(resp)[1]

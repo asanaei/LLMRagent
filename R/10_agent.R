@@ -65,6 +65,10 @@
     #' @param agent Agent created by `new_agent()`.
     #' @param user_text Character scalar user input.
     #' @param json Logical; if TRUE (default) request JSON-structured output when supported.
+    #' @param schema Optional JSON Schema (R list) to enforce structured output when `json = TRUE`.
+    #'   If `NULL` and `json = TRUE`, the agent requests a generic JSON object via provider-appropriate toggles.
+    #' @param strict Logical; when `schema` is supplied on OpenAI-compatible providers, pass `strict = TRUE` by default.
+    #' @param return_object Logical; if TRUE, return the underlying `LLMR::llmr_response` object instead of character text.
     #' @return Character scalar assistant reply.
     #' @examples
     #' # Minimal deterministic example without API call:
@@ -72,7 +76,7 @@
     #' dummy$system_prompt <- ""; dummy$model_config <- list()
     #' # agent_reply(dummy, "hello", json = FALSE)
     #' @export
-    agent_reply <- function(agent, user_text, json = TRUE) {
+    agent_reply <- function(agent, user_text, json = TRUE, schema = NULL, strict = TRUE, return_object = FALSE) {
       stopifnot(is.environment(agent))
 
       msgs <- list()
@@ -82,10 +86,15 @@
       user_msg <- create_message("user", user_text)
       msgs <- c(msgs, agent$memory$get(), list(user_msg))
 
-      resp <- .call_llm_guarded(
-        config   = agent$model_config,
-        messages = format_messages_for_api(msgs),
-        json_flag = json
+      resp <- do.call(
+        what = .call_llm_guarded,
+        args = list(
+          config    = agent$model_config,
+          messages  = format_messages_for_api(msgs),
+          json_flag = json,
+          schema    = schema,
+          strict    = strict
+        )
       )
 
       # --- text extraction (works for llmr_response OR list) ---
@@ -154,6 +163,9 @@
       out_msg <- create_message("assistant", reply_text)
       agent$memory$add(user_msg)
       agent$memory$add(out_msg)
+      if (isTRUE(return_object) && inherits(resp, "llmr_response")) {
+        return(resp)
+      }
       reply_text
     }
 
