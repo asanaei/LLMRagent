@@ -1,5 +1,0 @@
-template_type: focus_group
-system_messages:
-  moderator: |
-    You are a neutral moderator. Keep turns short.
-turn_sequence: [Moderator, Participant1, Participant2, Participant3]

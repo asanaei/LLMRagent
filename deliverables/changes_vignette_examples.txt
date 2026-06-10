@@ -1,1 +1,0 @@
-Vignette cleaned. Added inst/examples with three offline scripts. Rechecked: still 0 ERRORs / 0 WARNINGs; only standard NOTEs.

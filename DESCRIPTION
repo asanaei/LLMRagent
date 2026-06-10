@@ -1,33 +1,39 @@
 Type: Package
 Package: LLMRAgent
-Title: Conservative Agent Framework for LLM Workflows in R
-Version: 0.1.3
-Author: Ali Sanaei <sanaei@uchicago.edu>
-Authors@R: 
+Title: Agents, Multi-Agent Conversations, and Agent Experiments for R
+Version: 0.7.1
+Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
-Maintainer: Ali Sanaei <sanaei@uchicago.edu>
-Description: Simple agent framework for R that integrates directly with LLMR package. Provides clean agent interface using model configs directly with call_llm_robust, supporting JSON mode by default. Includes memory management and deterministic testing without network dependencies.
+Description: Build language-model agents in R on top of the 'LLMR' package:
+  agents with personas, native tool calling, pluggable memory, and hard
+  budgets; multi-agent conversations with shared transcripts and turn-taking
+  policies (debates, focus groups, interviews, deliberations with votes);
+  factorial agent experiments run in parallel with seeds and tidy results;
+  and an orchestrator that pairs one strong model with many cheap workers.
+  Every run produces a tidy transcript and a trace of calls, tokens, and
+  timings, so agent-based studies are inspectable and reproducible.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
-Depends: 
+RoxygenNote: 7.3.3
+Depends:
     R (>= 4.2)
 Imports:
+    LLMR (>= 0.8.3),
+    R6,
     tibble,
-    jsonlite,
-    LLMR (>= 0.6.0),
+    rlang,
+    cli,
     utils
 Suggests:
-    httr2,
     testthat (>= 3.0.0),
     knitr,
     rmarkdown,
-    lintr,
-    pkgdown,
-    jsonvalidate,
-    vctrs
+    future,
+    future.apply,
+    dplyr
 Config/testthat/edition: 3
 VignetteBuilder: knitr
-URL: https://github.com/asanaei/LLMRAgent
+URL: https://github.com/asanaei/LLMRAgent, https://asanaei.github.io/LLMRAgent/
 BugReports: https://github.com/asanaei/LLMRAgent/issues
+Remotes: asanaei/LLMR

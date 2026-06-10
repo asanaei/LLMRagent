@@ -1,0 +1,96 @@
+---
+title: "A deliberation experiment: group composition and collective decisions"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{A deliberation experiment: group composition and collective decisions}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
+)
+```
+
+Agent-based simulation with language models lets one ask, cheaply and with
+full transcripts, questions that are hard to randomize with humans: does
+group composition change a collective decision? Here we run a small
+factorial deliberation study, the kind a class or a pilot grant could extend.
+The design: panels of three deliberate on a workplace proposal and then vote
+privately. We vary one factor, whether the panel contains a fiscal skeptic,
+and replicate each cell.
+
+A caution before the code: simulated agents are models of discourse, not of
+people. Results characterize the model under the personas given, a useful
+tool for theory development and instrument piloting, not a substitute for
+human subjects.
+
+```{r design}
+library(LLMRAgent)
+
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.9)
+
+base_personas <- c(
+  "An operations manager who values predictability. Plain speech.",
+  "A young engineer enthusiastic about flexible work. Optimistic."
+)
+skeptic  <- "A finance director fixated on costs and risks. Blunt."
+neutral  <- "An HR generalist who weighs evidence carefully. Even-keeled."
+
+design <- expand.grid(
+  composition = c("with_skeptic", "no_skeptic"),
+  stringsAsFactors = FALSE
+)
+
+run_cell <- function(cond, rep) {
+  third <- if (cond$composition == "with_skeptic") skeptic else neutral
+  panel <- list(
+    agent("Morgan", cfg, persona = base_personas[1], quiet = TRUE),
+    agent("Sam",    cfg, persona = base_personas[2], quiet = TRUE),
+    agent("Ren",    cfg, persona = third, quiet = TRUE)
+  )
+  deliberate(
+    panel,
+    proposal = "Adopt a four-day work week for a one-year pilot, full pay.",
+    rounds = 2, quiet = TRUE
+  )
+}
+```
+
+Run the experiment (2 cells x 5 replications = 10 deliberations; with
+`LLMR::llm_log_enable()` on, every call is archived):
+
+```{r run}
+LLMR::llm_log_enable("deliberation_runs.jsonl")
+res <- agent_experiment(design, run_cell, reps = 5, quiet = TRUE)
+LLMR::llm_log_disable()
+res[, c("composition", "rep", "error", "duration")]
+```
+
+Tidy the outcomes and compare:
+
+```{r analyze}
+votes <- do.call(rbind, lapply(seq_len(nrow(res)), function(i) {
+  d <- res$result[[i]]
+  if (is.null(d)) return(NULL)
+  cbind(composition = res$composition[i], rep = res$rep[i], d$votes)
+}))
+
+# share of 'yes' votes by composition
+aggregate(I(vote == "yes") ~ composition, data = votes, FUN = mean)
+
+# and the decisions
+decisions <- vapply(res$result, function(d)
+  if (is.null(d)) NA_character_ else d$decision, character(1))
+table(res$composition, decisions, useNA = "ifany")
+```
+
+Everything is inspectable: each `res$result[[i]]$transcript` is a tidy
+utterance-level frame (speaker, round, text) for content analysis, and the
+private votes carry one-sentence reasons. Natural extensions: vary the
+proposal framing as a second factor, replace the vote schema with a
+continuous support scale, score transcripts with `LLMR::llm_mutate()` for
+argument types, or re-run the same design across providers to check that a
+finding is not one model's idiosyncrasy.

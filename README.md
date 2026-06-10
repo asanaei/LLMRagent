@@ -1,264 +1,120 @@
-# LLMRAgent
-
-<img src="https://github.com/asanaei/LLMRAgent/raw/main/assets/LLMRAgent_512x512.png" width="120" alt="LLMR logo">
-
+# LLMRAgent <img src="man/figures/logo.png" align="right" width="120" alt="LLMRAgent logo" />
 
 <!-- badges: start -->
-[![Lifecycle: stable](https://img.shields.io/badge/lifecycle-stable-brightgreen.svg)](https://lifecycle.r-lib.org/articles/stages.html#stable)
-[![R-CMD-check](https://github.com/asanaei/LLMRAgent/workflows/R-CMD-check/badge.svg)](https://github.com/asanaei/LLMRAgent/actions)
+[![R-CMD-check](https://github.com/asanaei/LLMRAgent/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/asanaei/LLMRAgent/actions/workflows/R-CMD-check.yaml)
+[![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CRAN status](https://www.r-pkg.org/badges/version/LLMRAgent)](https://CRAN.R-project.org/package=LLMRAgent)
-[![CRAN downloads](https://cranlogs.r-pkg.org/badges/grand-total/LLMRAgent)](https://CRAN.R-project.org/package=LLMRAgent)
-[![GitHub issues](https://img.shields.io/github/issues/asanaei/LLMRAgent)](https://github.com/asanaei/LLMRAgent/issues)
+[![Website](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://asanaei.github.io/LLMRAgent/)
 <!-- badges: end -->
 
-> **Simple agent framework for R that integrates directly with LLMR package**
-
-LLMRAgent provides a clean, simple interface for creating AI agents using LLMR model configurations. No complex adapters, just direct integration with `LLMR::llm_config()` and `call_llm_robust()`.
-
-## Key Features
-
-- **Direct LLMR Integration**: Uses `LLMR::llm_config()` directly 
-- **Made to be intuitive to use**
-
-## Installation
-
-### From CRAN (When available)
+Language-model **agents for R**, built on [LLMR](https://github.com/asanaei/LLMR):
+personas, native tool calling, pluggable memory, hard budgets, agents that
+delegate to other agents, multi-agent conversations with tidy transcripts,
+factorial agent experiments, and a strong-plus-cheap model orchestrator.
+Designed for social scientists running agent-based studies, and equally for
+anyone in R who wants a capable agent in five lines.
 
 ```r
-install.packages("LLMRAgent")
-```
+# install.packages("remotes")
+remotes::install_github("asanaei/LLMRAgent")
 
-### From GitHub (Current)
-
-```r
-# Install devtools if needed
-if (!requireNamespace("devtools", quietly = TRUE)) {
-  install.packages("devtools")
-}
-
-# Install LLMRAgent
-devtools::install_github("asanaei/LLMRAgent")
-```
-
-## Prerequisites
-
-You need the [LLMR package](https://github.com/asanaei/LLMR) and valid API credentials:
-
-```r
-install.packages("LLMR")  # Or devtools::install_github("asanaei/LLMR")
-```
-
-## Quick Start
-
-```r
-library(LLMR)
 library(LLMRAgent)
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b")   # any LLMR provider works
 
-# Create LLMR model configuration
-config <- LLMR::llm_config(
-  provider = "openai",
-  model = "gpt-4o-mini",
-  api_key = Sys.getenv("OPENAI_API_KEY")
-)
-
-# Create agent
-agent <- new_agent(
-  system_prompt = "You are a helpful R programming assistant.",
-  model_config = config
-)
-
-# Chat with the agent
-reply <- agent_reply(agent, "What is R?")
-cat(reply)
+ada <- agent("Ada", cfg, persona = "A meticulous statistician. Be brief.")
+ada$chat("What is overfitting?")
+ada$chat("How do I detect it?")                # remembers the thread
+ada$chat("Now explain it to a child.", stream = TRUE)   # tokens print live
+ada$usage()                                    # calls, tokens, tool calls, seconds
 ```
 
-## JSON Mode
+## What it gives you
 
-Enable structured responses with JSON mode:
+**Agents** — `agent()` wraps a persona and an `LLMR::llm_config()` with:
+
+- *Tools*: expose any R function via `LLMR::llm_tool()`; the agent's tool
+  calls are executed automatically and fed back until it answers.
+- *Memory*: last-n buffer, auto-summarizing memory that compacts itself when
+  the conversation grows (optionally billed to a cheaper model), or
+  embedding-based recall (`?memory`).
+- *Budgets*: `budget(max_calls, max_tokens, max_tool_calls, max_seconds)` is
+  checked **before** each call; the call that would exceed it raises a typed
+  error instead of spending.
+- *Traces*: `agent$trace()` is a tibble of every call, tool run, and memory
+  compaction, with tokens and timings. Failures raise errors; they are never
+  recorded as something the model said.
+
+**Agents calling agents** — `agent_as_tool(specialist)` turns an agent into
+a tool any other agent can consult. Supervisors route work to specialists at
+their own discretion; each consultation lands on the specialist's own meter
+and respects its own budget.
 
 ```r
-# JSON mode (default)
-json_reply <- agent_reply(
-  agent, 
-  "List 3 benefits of R as JSON with keys: benefit1, benefit2, benefit3",
-  json = TRUE
+stat <- agent("Stat", cfg, persona = "A PhD statistician. Precise about assumptions.")
+lead <- agent("Lead", cfg, persona = "A research lead. Consult specialists, then synthesize.",
+              tools = list(agent_as_tool(stat)))
+lead$chat("Could falling crime cause rising policing budgets, rather than vice versa?")
+```
+
+**Pipelines** — `agent_pipeline()` chains specialists into an assembly line
+(extract, then verify, then rewrite), keeping every intermediate product in
+a tidy `steps` frame.
+
+**Multi-agent conversations** — `conversation()` runs agents over a shared,
+speaker-attributed transcript (everyone sees the full dialogue), with
+round-robin, random, or moderator-chosen turn order. Ready-made study
+formats, each returning analysis-ready tibbles:
+
+| Preset | Returns |
+|---|---|
+| `debate(pro, con, topic, judge =)` | phased transcript + structured verdict |
+| `focus_group(moderator, participants, topic)` | utterance-level transcript + moderator synthesis |
+| `interview(interviewer, respondent, topic)` | tidy question/answer frame with adaptive probes |
+| `deliberate(agents, proposal)` | discussion transcript + private structured votes + tally |
+
+**Agent experiments** — `agent_experiment(design, run_fn, reps)` runs a
+factorial design (conditions x replications), sequentially or in parallel,
+with per-cell error capture, returning one tidy results frame. Combine with
+`LLMR::llm_log_enable()` for a per-call audit file of the entire study.
+
+**The super-brain** — `think_harder(problem, strong_config, cheap_config)`:
+one strong model plans and synthesizes; many cheap models work the
+approaches in parallel; an optional hostile-reviewer pass repairs flaws.
+Strong-model spend stays at two to four calls regardless of fan-out, and all
+intermediate products are kept for inspection.
+
+## A taste of multi-agent work
+
+```r
+panel <- list(
+  agent("Morgan", cfg, persona = "An operations manager who values predictability."),
+  agent("Sam",    cfg, persona = "A young engineer, enthusiastic about flexibility."),
+  agent("Ren",    cfg, persona = "A finance director fixated on costs. Blunt.")
 )
 
-# Robustly parse structured output
-parsed <- LLMR::llm_parse_structured(json_reply)
-str(parsed)
+d <- deliberate(panel, "Adopt a four-day work week for a one-year pilot.")
+d$transcript     # tidy: turn, round, speaker, text
+d$votes          # private structured votes with reasons
+d$decision
 ```
 
-Schema Mode (optional): You can ask the agent for schema-validated JSON. Under the hood LLMR toggles provider-specific controls.
+## Vignettes
 
-```r
-schema <- list(
-  type = "object",
-  properties = list(
-    answer = list(type = "string"),
-    confidence = list(type = "number")
-  ),
-  required = list("answer","confidence"),
-  additionalProperties = FALSE
-)
-json_reply2 <- agent_reply(
-  agent,
-  "Return answer and confidence (0..1) about: Why is the sky blue?",
-  json   = TRUE,
-  schema = schema
-)
-parsed2 <- LLMR::llm_parse_structured(json_reply2)
-str(parsed2)
-```
+- *LLMRAgent in 10 minutes* — agents, tools, budgets, delegation, pipelines.
+- *Designed conversations* — debates, focus groups, interviews, deliberations.
+- *The super-brain pattern* — strong-plus-cheap orchestration.
+- *A deliberation experiment* — a complete factorial study with analysis.
 
-## Token Usage Tracking
+All articles and reference: <https://asanaei.github.io/LLMRAgent/>
 
-Agents automatically track token usage across all interactions:
+## Relation to LLMR
 
-```r
-# Usage is tracked automatically with each call
-agent_reply(agent, "What is R?")
-agent_reply(agent, "What is Python?") 
-agent_reply(agent, "Compare them")
-
-# Check cumulative usage at any time
-usage <- agent_usage(agent)
-cat("Total tokens:", usage$total_tokens)
-cat("Interactions:", usage$interactions)
-
-# Reset usage tracking if needed
-agent_usage_reset(agent)
-```
-
-## Memory Management
-
-Agents automatically manage conversation history:
-
-```r
-# Create agent with custom memory size
-agent <- new_agent(
-  system_prompt = "Remember our conversation.",
-  model_config = config,
-  memory = new_buffer_memory(10)  # Keep last 10 messages
-)
-
-# Multi-turn conversation
-agent_reply(agent, "My name is Alice")
-agent_reply(agent, "What's my name?")  # Agent remembers!
-```
-
-### Summarization
-
-Use summary memory to generate concise summaries via your LLMR configuration. You can set a dedicated summarizer config or fall back to the agent’s model config.
-
-```r
-# Create a summary memory (no config yet)
-sm <- new_summary_memory()
-
-# Agent injects a default summarizer config into the memory:
-# - uses summarizer_model_config if provided
-# - otherwise falls back to model_config
-agent <- new_agent(
-  system_prompt = "Be concise.",
-  model_config = config,
-  memory = sm,
-  summarizer_model_config = config  # optional; can be a different model
-)
-
-# Optionally switch summarizer model later
-agent$set_summarizer_config(config)
-
-# Summarize recent conversation (requires valid config)
-summary_text <- sm$summary(max_chars = 400)
-cat(summary_text)
-```
-
-## Persistence
-
-Save and load agent state (system prompt, memory, usage, and model config):
-
-```r
-save_path <- tempfile(fileext = ".rds")
-save_agent(agent, save_path)
-
-agent2 <- load_agent(save_path)
-```
-
-## Examples
-
-See the `inst/examples/` directory for complete examples:
-
-- **Basic Usage**: Simple agent interactions
-- **JSON Mode**: Structured response handling  
-- **Memory**: Multi-turn conversations
-- **Multiple Providers**: OpenAI, Anthropic, etc.
- - **Summarization**: Off-the-shelf summarizer agent and summary memory
- - **Multi-Agent (Conservative)**: Minimal orchestrator for round-robin collaboration
-
-## API Reference
-
-### Core Functions
-
-- `new_agent(system_prompt, model_config, memory)` - Create new agent
-- `agent_reply(agent, user_text, json)` - Get agent response
-- `agent_usage(agent)` - Get cumulative token usage
-- `agent_usage_reset(agent)` - Reset usage tracking
-- `new_buffer_memory(size)` - Create conversation memory
-
-### Requirements
-
-- **model_config**: Required LLMR configuration from `LLMR::llm_config()`
-- **API Keys**: Valid credentials for your chosen provider
-
-## Supported Providers
-
-Through LLMR integration:
-
-- **OpenAI**: GPT-4, GPT-4o, GPT-3.5-turbo
-- **Anthropic**: Claude-3, Claude-3.5
-- **Google**: Gemini models
-- **Ollama**: Local models
-- **Azure OpenAI**: Enterprise deployments
-
-## Error Handling
-
-The package enforces proper usage:
-
-```r
-# This fails - config is required
-new_agent("Be helpful.")
-#> Error: model_config is required. Use LLMR::llm_config() to create one.
-```
-
-## Documentation
-
-- **Vignette**: `vignette("quickstart", package = "LLMRAgent")`
-- **Examples**: `system.file("examples", package = "LLMRAgent")`
-- **Help**: `?new_agent`, `?agent_reply`
-
-## Related Packages
-
-- **[LLMR](https://github.com/asanaei/LLMR)**: Core LLM interface (required)
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+[LLMR](https://github.com/asanaei/LLMR) supplies the provider layer: 14+
+providers, retries, structured output, tool execution, streaming, parallel
+calls, audit logging, batch APIs. LLMRAgent adds the agent abstractions on
+top. Anything configured in LLMR (provider, model, sampling, caching,
+logging) works unchanged here.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Citation
-
-```r
-citation("LLMRAgent")
-```
-
-## Issues
-
-Found a bug or have a suggestion? Please [open an issue](https://github.com/asanaei/LLMRAgent/issues).
+MIT. Author: Ali Sanaei.

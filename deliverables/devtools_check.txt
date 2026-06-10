@@ -1,1 +1,0 @@
-devtools::check(args='--as-cran') was attempted but limited by sandboxed processx; using base R CMD check as source of truth. See R_CMD_check_as_cran.txt for full results (0 ERRORs / 0 WARNINGs; only standard NOTEs).

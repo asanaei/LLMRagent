@@ -1,0 +1,74 @@
+---
+title: "The super-brain pattern: one strong model, many cheap workers"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{The super-brain pattern: one strong model, many cheap workers}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
+)
+```
+
+Strong models are expensive where cheap models are merely mediocre: broad
+exploration. The reverse also holds: cheap models explore well in volume but
+synthesize poorly. `think_harder()` exploits the asymmetry with a fixed
+division of labor:
+
+1. **Plan.** The strong model decomposes the problem into genuinely different
+   lines of attack (one call).
+2. **Work.** A cheap model pursues each line independently and in parallel,
+   blind to the others, so the drafts do not converge by imitation.
+3. **Synthesize.** The strong model weighs the drafts against one another,
+   discards what fails scrutiny, and writes the answer (one call).
+4. **Verify.** Optionally, the strong model attacks its own synthesis as a
+   hostile reviewer; one revision pass runs when it finds a substantive flaw
+   (one or two calls).
+
+Whatever the fan-out width, the strong model is billed for two to four calls;
+the volume goes to the cheap model. And unlike a single oracular answer,
+every intermediate product is retained for inspection.
+
+```{r run}
+library(LLMRAgent)
+
+strong <- LLMR::llm_config("deepseek", "deepseek-reasoner")
+cheap  <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.8)
+
+out <- think_harder(
+  "A mid-sized university wants to raise its course-evaluation response rate
+   from 35% to 70% within two semesters, without making responses mandatory
+   and without raffles or payments. Design the most promising intervention
+   portfolio, with predicted effect sizes where evidence exists.",
+  strong_config = strong,
+  cheap_config  = cheap,
+  n_approaches  = 5
+)
+
+cat(out$answer)
+```
+
+The audit trail:
+
+```{r inspect}
+out$plan                                  # what the planner asked for
+out$workers[, c("approach", "success")]   # who delivered
+out$verification                          # what the reviewer objected to
+out$revised                               # whether a repair pass ran
+LLMR::llm_usage(out$workers)              # tokens spent on the cheap side
+```
+
+Two practical notes. First, worker drafts are independent by construction;
+if you see near-identical drafts, your approaches were paraphrases, and the
+remedy is a better problem statement, not more workers. Second, the pattern
+composes with `LLMR::llm_log_enable()`: turn it on beforehand and the whole
+orchestration, every worker included, lands in one auditable JSONL file.
+
+`think_harder()` is a fixed pipeline: plan, work, synthesize, verify. When
+you want the strong model to decide for itself when and whom to consult,
+build the same economics free-form with `agent_as_tool()`: give a strong
+supervisor several cheap specialists as tools and let it route the work.

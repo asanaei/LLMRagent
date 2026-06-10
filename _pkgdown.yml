@@ -1,0 +1,55 @@
+url: https://asanaei.github.io/LLMRAgent/
+
+template:
+  bootstrap: 5
+  bslib:
+    primary: "#2C3E50"
+
+home:
+  title: "LLMRAgent: language-model agents for R"
+
+reference:
+- title: Agents
+  desc: >
+    One agent: a persona, a model, tools, memory, and hard budgets.
+  contents:
+  - agent
+  - Agent-class
+  - budget
+  - memory
+- title: Delegation and pipelines
+  desc: >
+    Agents calling agents, and fixed chains of specialists.
+  contents:
+  - agent_as_tool
+  - agent_pipeline
+- title: Conversations and study presets
+  desc: >
+    Multi-agent dialogue over a shared transcript, and ready-made formats
+    that return analysis-ready tibbles.
+  contents:
+  - conversation
+  - debate
+  - focus_group
+  - interview
+  - deliberate
+- title: Experiments and orchestration
+  contents:
+  - agent_experiment
+  - think_harder
+- title: Persistence
+  contents:
+  - save_agent
+  - load_agent
+- title: Package
+  contents:
+  - LLMRAgent-package
+
+articles:
+- title: Articles
+  navbar: ~
+  contents:
+  - getting-started
+  - designed-conversations
+  - super-brain
+  - deliberation-experiment

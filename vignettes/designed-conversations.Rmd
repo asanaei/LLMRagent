@@ -1,0 +1,144 @@
+---
+title: "Designed conversations: debates, focus groups, interviews, deliberations"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Designed conversations: debates, focus groups, interviews, deliberations}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
+)
+```
+
+Social research has spent a century refining conversation formats: the
+debate elicits the strongest case each side can muster; the focus group
+surfaces how opinions move in company; the interview goes deep on one
+person; the deliberation ends in a decision. LLMRAgent ships each as a
+one-call preset. All four share the same anatomy -- agents built with
+`agent()`, a shared attributed transcript, tidy returns -- so what you learn
+on one transfers to the rest.
+
+Throughout, one model and one cast:
+
+```{r setup}
+library(LLMRAgent)
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.8)
+```
+
+## Debate: the strongest case for each side
+
+`debate()` runs opening statements, `rounds` of rebuttals, and closings, in
+fixed alternation; an optional judge returns a structured verdict. Because
+every statement is labeled with its phase, you can study how arguments
+develop: openings state values, rebuttals engage evidence, closings
+synthesize.
+
+```{r debate}
+d <- debate(
+  pro   = agent("Pro", cfg, persona = "You argue FOR the motion. Rigorous, concrete."),
+  con   = agent("Con", cfg, persona = "You argue AGAINST the motion. Rigorous, concrete."),
+  topic = "Algorithmic screening should be banned from hiring decisions.",
+  rounds = 1,
+  judge = agent("Judge", cfg, persona = "A strict, impartial debate judge.")
+)
+d                     # compact print: motion, statements, verdict
+d$transcript          # tidy: turn, phase, speaker, text
+d$verdict$reasoning
+```
+
+## Focus group: opinions in company
+
+`focus_group()` puts each question to every participant; speaking order
+rotates across questions so no one anchors every round, and participants
+see the discussion so far, as in a real group. The moderator closes with a
+synthesis.
+
+```{r focus-group}
+fg <- focus_group(
+  moderator = agent("Mod", cfg, persona = "A neutral, probing focus-group moderator."),
+  participants = list(
+    agent("Maya", cfg, persona = "A 34-year-old nurse; prudent, skeptical of tech."),
+    agent("Tom",  cfg, persona = "A 22-year-old gig worker; tech-optimistic."),
+    agent("Ines", cfg, persona = "A 58-year-old teacher; worries about fairness.")
+  ),
+  topic = "Using AI screening in hiring",
+  questions = c(
+    "How would you feel if an algorithm screened your next job application?",
+    "What, if anything, would make that acceptable to you?"
+  )
+)
+fg$summary            # the moderator's synthesis
+fg$transcript         # utterance-level frame for content analysis
+```
+
+Leave `questions = NULL` and the moderator drafts its own -- useful for
+piloting an instrument before you spend human-subjects time on it.
+
+## Interview: depth on one respondent
+
+`interview()` works through a question list with one adaptive probe after
+each answer (the interviewer decides whether a probe is warranted; `NONE`
+suppresses it). The return is already the frame interview studies analyze:
+one row per question or probe.
+
+```{r interview}
+iv <- interview(
+  interviewer = agent("Interviewer", cfg,
+                      persona = "A careful qualitative researcher."),
+  respondent  = agent("Respondent", cfg,
+                      persona = "A warehouse worker whose shift assignments are set by software."),
+  topic = "Working under algorithmic management",
+  n_questions = 3
+)
+iv[, c("type", "question")]
+```
+
+## Deliberation: talk, then decide
+
+`deliberate()` is the format with a dependent variable. Everyone speaks each
+round, seeing the discussion so far; then each agent votes privately through
+structured output, with a one-sentence reason. Public positions and private
+votes can disagree, and that gap is itself measurable.
+
+```{r deliberate}
+panel <- list(
+  agent("Aila", cfg, persona = "Data-driven; cautious about unintended effects."),
+  agent("Bo",   cfg, persona = "Mission-driven; impatient with delay."),
+  agent("Cyn",  cfg, persona = "A budget hawk. Blunt.")
+)
+dl <- deliberate(panel,
+                 proposal = "Adopt AI resume screening for all entry-level hiring.",
+                 rounds = 2)
+dl$votes              # voter, vote, reason
+dl$decision
+```
+
+## From transcripts to analysis
+
+Every preset returns its transcript as a tidy tibble, so the path to
+analysis is short. Two common moves: score utterances with a model (via
+LLMR's tidy verbs), and compare across runs with [agent_experiment()].
+
+```{r analyze}
+# Who spoke most, and how much?
+tr <- fg$transcript
+aggregate(nchar(text) ~ speaker, data = tr, FUN = sum)
+
+# Score each utterance for stance with a one-line LLMR call:
+scored <- LLMR::llm_mutate(
+  tr, stance,
+  prompt = "One word, support/oppose/neutral. Stance on AI hiring in: {text}",
+  .config = cfg
+)
+table(scored$speaker, scored$stance)
+```
+
+To turn any of these into an experiment -- vary the personas, the framing,
+the group composition -- wrap the call in a function and hand it to
+`agent_experiment()`; the deliberation vignette walks through a complete
+factorial study. And for a permanent record of every call these formats
+make, switch on `LLMR::llm_log_enable("study.jsonl")` first.

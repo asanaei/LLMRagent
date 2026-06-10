@@ -1,0 +1,165 @@
+---
+title: "LLMRAgent in 10 minutes"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{LLMRAgent in 10 minutes}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
+)
+```
+
+An agent is three things: a model (an `LLMR::llm_config()`), a persona (a
+system prompt), and machinery around them: memory, tools, and budgets. This
+vignette builds one of each. Examples use the open-weight `gpt-oss-20b` on
+Groq; set `GROQ_API_KEY` and `LLMRAGENT_RUN_VIGNETTES=true` to run them.
+
+```{r setup}
+library(LLMRAgent)
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.7)
+```
+
+## A first agent
+
+```{r first}
+ada <- agent(
+  "Ada", cfg,
+  persona = "You are Ada, a meticulous statistician. Answer in one or two sentences."
+)
+ada$chat("What is overfitting?")
+ada$chat("How would I detect it in practice?")   # remembers the thread
+ada$usage()
+```
+
+`chat()` is stateful: the agent keeps its own memory (last 40 messages by
+default; see `?memory` for summarizing and retrieval policies). `reply()` is
+the stateless sibling, used internally by conversations. For long answers,
+`chat(stream = TRUE)` prints tokens as they are generated:
+
+```{r stream}
+ada$chat("Explain cross-validation to a newcomer, in one paragraph.",
+         stream = TRUE)
+```
+
+## Tools: let the agent call your R functions
+
+Anything you can write as an R function can become a tool. The agent decides
+when to call it; LLMRAgent executes the call and feeds the result back.
+
+```{r tools}
+lookup_gdp <- LLMR::llm_tool(
+  function(country) {
+    gdp <- c(chile = 335, uruguay = 81, bolivia = 47)  # USD bn, illustrative
+    val <- gdp[tolower(country)]
+    if (is.na(val)) "unknown" else paste0("$", val, " billion")
+  },
+  name = "lookup_gdp",
+  description = "Look up a country's GDP in USD billions.",
+  parameters = list(country = list(type = "string", description = "Country name"))
+)
+
+analyst <- agent("Analyst", cfg, tools = lookup_gdp,
+                 persona = "A careful economic analyst. Use tools for any figure.")
+analyst$chat("Compare the GDPs of Chile and Uruguay using the lookup tool.")
+analyst$trace()   # every model call and tool call, with tokens and timing
+```
+
+## Budgets: spend ceilings the agent cannot cross
+
+Budgets are checked before each call; the call that would exceed a limit is
+refused with a typed error, so a loop cannot quietly burn money.
+
+```{r budgets}
+frugal <- agent("Frugal", cfg, budget = budget(max_calls = 2))
+frugal$chat("one")
+frugal$chat("two")
+tryCatch(frugal$chat("three"),
+         llmragent_budget_error = function(e) "stopped by budget, as designed")
+```
+
+## Structured answers
+
+```{r structured}
+schema <- list(
+  type = "object",
+  properties = list(stance = list(type = "string",
+                                  enum = list("support", "oppose", "unsure")),
+                    reason = list(type = "string")),
+  required = list("stance", "reason")
+)
+ada$ask_structured("Should small samples use t or z intervals?", schema)
+```
+
+## Agents calling agents
+
+`agent_as_tool()` turns an agent into a tool, so another agent can consult
+it. The supervisor decides for itself when to delegate; each consultation
+runs on the specialist's own meter (its `usage()`, its `budget()`).
+
+```{r delegation}
+stat <- agent("Stat", cfg,
+              persona = "A PhD statistician. Precise about assumptions.")
+hist <- agent("Hist", cfg,
+              persona = "An economic historian. Institutional context.")
+
+lead <- agent("Lead", cfg,
+              persona = "A research lead. Consult specialists, then synthesize.",
+              tools = list(agent_as_tool(stat), agent_as_tool(hist)))
+
+lead$chat("Crime fell while policing budgets rose, across many cities.
+           What would it take to argue causality?")
+stat$usage()   # the consultation showed up here
+```
+
+## Pipelines: an assembly line of specialists
+
+When the routing is fixed rather than model-chosen, chain agents with
+`agent_pipeline()`: each stage transforms the previous stage's output, and
+every intermediate product is kept.
+
+```{r pipeline}
+run <- agent_pipeline(
+  list(
+    agent("Extractor", cfg, persona =
+      "Extract every factual claim as a numbered list. Nothing else."),
+    agent("Checker", cfg, persona =
+      "Mark each numbered claim VERIFIABLE or VAGUE, one line each."),
+    agent("Editor", cfg, persona =
+      "Rewrite the original passage keeping only VERIFIABLE claims.")
+  ),
+  input = "Our app doubled retention, won three design awards, and users love it."
+)
+run$output
+run$steps      # step, agent, input, output -- the full audit trail
+```
+
+## A two-agent conversation
+
+Conversations run over a shared, speaker-attributed transcript: every agent
+sees the full dialogue each turn, and the transcript comes back as a tidy
+tibble, ready for text analysis.
+
+```{r conversation}
+rosa <- agent("Rosa", cfg, persona = "A pragmatic city planner. Concrete and brief.")
+hugo <- agent("Hugo", cfg, persona = "A skeptical economist. Numbers first. Brief.")
+
+conv <- conversation(
+  list(rosa, hugo),
+  topic = "Should the city pedestrianize its center?",
+  max_turns = 4,
+  instruction = "At most three sentences per turn."
+)
+conv$transcript
+```
+
+From here: `vignette("designed-conversations")` tours the ready-made study
+formats (debates, focus groups, interviews, deliberations);
+`vignette("deliberation-experiment")` runs a complete factorial study with
+`agent_experiment()`; and `vignette("super-brain")` shows strong-plus-cheap
+model orchestration with `think_harder()`. For a per-call audit file of
+everything an agent did, turn on `LLMR::llm_log_enable()` before running.
