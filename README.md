@@ -109,12 +109,23 @@ All articles and reference: <https://asanaei.github.io/LLMRAgent/>
 
 ## Relation to LLMR
 
-[LLMR](https://github.com/asanaei/LLMR) supplies the provider layer: 14+
+[LLMR](https://asanaei.github.io/LLMR/) supplies the provider layer: 14+
 providers, retries, structured output, tool execution, streaming, parallel
 calls, audit logging, batch APIs. LLMRAgent adds the agent abstractions on
 top. Anything configured in LLMR (provider, model, sampling, caching,
 logging) works unchanged here.
 
-## License
+## The LLMR ecosystem
 
-MIT. Author: Ali Sanaei.
+LLMRAgent is one member of a family of packages for LLM-assisted research
+built on [LLMR](https://asanaei.github.io/LLMR/). The method packages cover
+measurement and its defense:
+[LLMRcoder](https://asanaei.github.io/LLMRcoder/) provides codebook-first
+annotation with sealed gold-set validation,
+[LLMRvalid](https://asanaei.github.io/LLMRvalid/) audits the robustness of
+LLM-mediated estimates, [LLMRarchive](https://asanaei.github.io/LLMRarchive/)
+turns audit logs into verifiable replication archives, and
+[LLMRpanel](https://asanaei.github.io/LLMRpanel/) builds calibrated silicon
+samples for survey and experiment design. An overview of the family lives at
+the [ecosystem page](https://asanaei.github.io/LLMR-ecosystem/).
+
