@@ -4,7 +4,16 @@
 \alias{debate}
 \title{Structured debate between two agents}
 \usage{
-debate(pro, con, topic, rounds = 2L, judge = NULL, quiet = FALSE, ...)
+debate(
+  pro,
+  con,
+  topic,
+  rounds = 2L,
+  judge = NULL,
+  msg_mode = NULL,
+  quiet = FALSE,
+  ...
+)
 }
 \arguments{
 \item{pro, con}{\link{Agent}s arguing for and against.}
@@ -15,6 +24,9 @@ debate(pro, con, topic, rounds = 2L, judge = NULL, quiet = FALSE, ...)
 
 \item{judge}{Optional \link{Agent}; if supplied, returns a verdict with a
 winner, a confidence, and reasoning.}
+
+\item{msg_mode}{Message construction, \code{"roleflip"} (default) or \code{"flat"};
+\code{NULL} uses \code{getOption("LLMRagent.msg_mode")}. See \code{\link[=conversation]{conversation()}}.}
 
 \item{quiet}{Passed through; FALSE prints utterances live.}
 

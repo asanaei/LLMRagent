@@ -11,6 +11,7 @@ interview(
   questions = NULL,
   n_questions = 5L,
   follow_up = TRUE,
+  msg_mode = NULL,
   quiet = FALSE,
   ...
 )
@@ -27,6 +28,9 @@ interview(
 
 \item{follow_up}{If TRUE (default), each scripted question may be followed
 by one adaptive probe based on the answer.}
+
+\item{msg_mode}{Message construction, \code{"roleflip"} (default) or \code{"flat"};
+\code{NULL} uses \code{getOption("LLMRagent.msg_mode")}. See \code{\link[=conversation]{conversation()}}.}
 
 \item{quiet}{FALSE prints the exchange live.}
 

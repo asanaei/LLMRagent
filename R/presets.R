@@ -14,6 +14,8 @@
 #' @param rounds Number of rebuttal exchanges (default 2).
 #' @param judge Optional [Agent]; if supplied, returns a verdict with a
 #'   winner, a confidence, and reasoning.
+#' @param msg_mode Message construction, `"roleflip"` (default) or `"flat"`;
+#'   `NULL` uses `getOption("LLMRagent.msg_mode")`. See [conversation()].
 #' @param quiet Passed through; FALSE prints utterances live.
 #' @param ... Passed to the agents' underlying LLMR calls.
 #' @return An object of class `agent_debate`: a list with `transcript`
@@ -32,8 +34,11 @@
 #' }
 #' @export
 debate <- function(pro, con, topic, rounds = 2L, judge = NULL,
-                   quiet = FALSE, ...) {
+                   msg_mode = NULL, quiet = FALSE, ...) {
   stopifnot(inherits(pro, "Agent"), inherits(con, "Agent"))
+  old_mm <- getOption("LLMRagent.msg_mode")
+  options(LLMRagent.msg_mode = .msg_mode(msg_mode))
+  on.exit(options(LLMRagent.msg_mode = old_mm), add = TRUE)
   phases <- c("opening",
               rep("rebuttal", max(0L, as.integer(rounds)) * 2L),
               "closing")
@@ -123,6 +128,8 @@ as.data.frame.agent_debate <- function(x, ...) as.data.frame(x$transcript, ...)
 #' @param questions Character vector of questions. If NULL, the moderator
 #'   drafts `n_questions` itself, which is useful for piloting.
 #' @param n_questions Number of questions to draft when `questions` is NULL.
+#' @param msg_mode Message construction, `"roleflip"` (default) or `"flat"`;
+#'   `NULL` uses `getOption("LLMRagent.msg_mode")`. See [conversation()].
 #' @param quiet FALSE prints the session live.
 #' @param ... Passed to the underlying LLMR calls.
 #' @return An object of class `agent_focus_group`: a list with `transcript`
@@ -148,9 +155,12 @@ as.data.frame.agent_debate <- function(x, ...) as.data.frame(x$transcript, ...)
 #' @export
 focus_group <- function(moderator, participants, topic,
                         questions = NULL, n_questions = 3L,
-                        quiet = FALSE, ...) {
+                        msg_mode = NULL, quiet = FALSE, ...) {
   stopifnot(inherits(moderator, "Agent"), is.list(participants),
             length(participants) >= 2L)
+  old_mm <- getOption("LLMRagent.msg_mode")
+  options(LLMRagent.msg_mode = .msg_mode(msg_mode))
+  on.exit(options(LLMRagent.msg_mode = old_mm), add = TRUE)
   for (p in participants) {
     if (!inherits(p, "Agent")) stop("`participants` must be Agent objects.", call. = FALSE)
   }
@@ -240,6 +250,8 @@ as.data.frame.agent_focus_group <- function(x, ...) {
 #' @param n_questions Number of questions to draft when `questions` is NULL.
 #' @param follow_up If TRUE (default), each scripted question may be followed
 #'   by one adaptive probe based on the answer.
+#' @param msg_mode Message construction, `"roleflip"` (default) or `"flat"`;
+#'   `NULL` uses `getOption("LLMRagent.msg_mode")`. See [conversation()].
 #' @param quiet FALSE prints the exchange live.
 #' @param ... Passed to the underlying LLMR calls.
 #' @return A tibble: `order`, `type` ("scripted" or "probe"), `question`,
@@ -260,8 +272,11 @@ as.data.frame.agent_focus_group <- function(x, ...) {
 #' @export
 interview <- function(interviewer, respondent, topic,
                       questions = NULL, n_questions = 5L,
-                      follow_up = TRUE, quiet = FALSE, ...) {
+                      follow_up = TRUE, msg_mode = NULL, quiet = FALSE, ...) {
   stopifnot(inherits(interviewer, "Agent"), inherits(respondent, "Agent"))
+  old_mm <- getOption("LLMRagent.msg_mode")
+  options(LLMRagent.msg_mode = .msg_mode(msg_mode))
+  on.exit(options(LLMRagent.msg_mode = old_mm), add = TRUE)
 
   if (is.null(questions)) {
     drafted <- interviewer$ask_structured(
@@ -335,6 +350,8 @@ interview <- function(interviewer, respondent, topic,
 #' @param proposal The proposal under deliberation (character scalar).
 #' @param rounds Discussion rounds before the vote (default 2).
 #' @param options Vote options. Default `c("yes", "no", "abstain")`.
+#' @param msg_mode Message construction, `"roleflip"` (default) or `"flat"`;
+#'   `NULL` uses `getOption("LLMRagent.msg_mode")`. See [conversation()].
 #' @param quiet FALSE prints the deliberation live.
 #' @param ... Passed to the underlying LLMR calls.
 #' @return An object of class `agent_deliberation`: a list with `transcript`
@@ -355,8 +372,13 @@ interview <- function(interviewer, respondent, topic,
 #' @export
 deliberate <- function(agents, proposal, rounds = 2L,
                        options = c("yes", "no", "abstain"),
-                       quiet = FALSE, ...) {
+                       msg_mode = NULL, quiet = FALSE, ...) {
   stopifnot(is.list(agents), length(agents) >= 2L)
+  # `options` is a formal here (the vote choices), shadowing base::options, so
+  # qualify the option set/restore explicitly.
+  old_mm <- getOption("LLMRagent.msg_mode")
+  base::options(LLMRagent.msg_mode = .msg_mode(msg_mode))
+  on.exit(base::options(LLMRagent.msg_mode = old_mm), add = TRUE)
   for (a in agents) {
     if (!inherits(a, "Agent")) stop("`agents` must be Agent objects.", call. = FALSE)
   }

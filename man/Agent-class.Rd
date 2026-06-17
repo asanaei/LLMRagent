@@ -156,7 +156,7 @@ The reply text (character scalar).
 \if{latex}{\out{\hypertarget{method-Agent-ask_structured}{}}}
 \subsection{Method \code{ask_structured()}}{
 Ask for a schema-shaped answer, parsed into an R list.
-Stateless (memory is not written); validation is local.
+Stateless (memory is not written); the reply is parsed locally.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{Agent$ask_structured(text, schema, ...)}\if{html}{\out{</div>}}
 }
@@ -164,7 +164,9 @@ Stateless (memory is not written); validation is local.
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{text}}{The question or instruction.}
+\item{\code{text}}{The question or instruction: a character scalar, or a message
+list as accepted by \code{LLMR::call_llm()} (the persona is prepended as a
+system message when the list has none).}
 
 \item{\code{schema}}{A JSON Schema (R list).}
 

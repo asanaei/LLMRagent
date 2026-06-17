@@ -51,6 +51,18 @@ utils::globalVariables(c("speaker", "turn"))
   m
 }
 
+# Run `code` with the message mode resolved and pinned for the duration. A
+# `msg_mode` argument on a public conversation function passes through here:
+# NULL keeps the caller's global option (or the "roleflip" default); an explicit
+# value overrides it for this run only, then the previous option is restored.
+.with_msg_mode <- function(msg_mode, code) {
+  resolved <- .msg_mode(msg_mode)
+  old <- getOption("LLMRagent.msg_mode")
+  options(LLMRagent.msg_mode = resolved)
+  on.exit(options(LLMRagent.msg_mode = old), add = TRUE)
+  force(code)
+}
+
 # Internal: build the message list for `speaker`'s next turn from the shared
 # transcript. `sys` is the persona + role instruction (-> system); `turn` is the
 # trailing "your turn" / current-question cue (-> final user turn). In "flat"

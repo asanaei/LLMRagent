@@ -158,8 +158,10 @@ Agent <- R6::R6Class(
     },
 
     #' @description Ask for a schema-shaped answer, parsed into an R list.
-    #'   Stateless (memory is not written); validation is local.
-    #' @param text The question or instruction.
+    #'   Stateless (memory is not written); the reply is parsed locally.
+    #' @param text The question or instruction: a character scalar, or a message
+    #'   list as accepted by `LLMR::call_llm()` (the persona is prepended as a
+    #'   system message when the list has none).
     #' @param schema A JSON Schema (R list).
     #' @param ... Passed to the underlying LLMR call.
     #' @return The parsed object (list), or NULL when parsing failed; the raw

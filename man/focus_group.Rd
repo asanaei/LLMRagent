@@ -10,6 +10,7 @@ focus_group(
   topic,
   questions = NULL,
   n_questions = 3L,
+  msg_mode = NULL,
   quiet = FALSE,
   ...
 )
@@ -25,6 +26,9 @@ focus_group(
 drafts \code{n_questions} itself, which is useful for piloting.}
 
 \item{n_questions}{Number of questions to draft when \code{questions} is NULL.}
+
+\item{msg_mode}{Message construction, \code{"roleflip"} (default) or \code{"flat"};
+\code{NULL} uses \code{getOption("LLMRagent.msg_mode")}. See \code{\link[=conversation]{conversation()}}.}
 
 \item{quiet}{FALSE prints the session live.}
 

@@ -37,8 +37,22 @@
 #'   after every utterance.
 #' @param instruction Extra instruction appended to every speaker's system
 #'   message (e.g. "Answer in at most three sentences.").
+#' @param msg_mode Message construction for this run: `"roleflip"` (default) or
+#'   `"flat"`. `NULL` (the default) uses `getOption("LLMRagent.msg_mode")`, else
+#'   `"roleflip"`. An explicit value overrides the global option for this call
+#'   only. See the Message construction section.
 #' @param quiet If FALSE (default), utterances print as they arrive.
 #' @param ... Passed to each agent's underlying LLMR call.
+#' @section Message construction:
+#' By default each speaker sees the conversation role-flipped: its own prior
+#' turns are `assistant` messages and every other speaker's are labeled `user`
+#' messages (via `LLMR::transcript_as_messages()`), which gives the model a
+#' structural handle on what it already said and reduces self-repetition.
+#' `msg_mode = "flat"` (or `options(LLMRagent.msg_mode = "flat")`) reverts to the
+#' legacy construction that pastes the whole attributed transcript into one
+#' `user` message -- useful for reproducing pre-0.7.x runs. The same control
+#' applies to the presets [debate()], [focus_group()], [interview()], and
+#' [deliberate()].
 #' @return An object of class `agent_conversation`: a list with `transcript`
 #'   (tibble: `turn`, `speaker`, `text`), `topic`, and `agents` (names).
 #' @examples
@@ -60,8 +74,18 @@ conversation <- function(agents, topic,
                          max_turns = 2L * length(agents),
                          stop_when = NULL,
                          instruction = NULL,
+                         msg_mode = NULL,
                          quiet = FALSE, ...) {
   turn_policy <- match.arg(turn_policy)
+  .with_msg_mode(msg_mode, .conversation_impl(
+    agents = agents, topic = topic, opening = opening, opening_by = opening_by,
+    turn_policy = turn_policy, moderator = moderator, max_turns = max_turns,
+    stop_when = stop_when, instruction = instruction, quiet = quiet, ...))
+}
+
+.conversation_impl <- function(agents, topic, opening, opening_by, turn_policy,
+                               moderator, max_turns, stop_when, instruction,
+                               quiet, ...) {
   stopifnot(is.list(agents), length(agents) >= 2L)
   for (a in agents) {
     if (!inherits(a, "Agent")) stop("`agents` must be a list of Agent objects.", call. = FALSE)

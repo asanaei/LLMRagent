@@ -14,6 +14,7 @@ conversation(
   max_turns = 2L * length(agents),
   stop_when = NULL,
   instruction = NULL,
+  msg_mode = NULL,
   quiet = FALSE,
   ...
 )
@@ -40,6 +41,11 @@ after every utterance.}
 
 \item{instruction}{Extra instruction appended to every speaker's system
 message (e.g. "Answer in at most three sentences.").}
+
+\item{msg_mode}{Message construction for this run: \code{"roleflip"} (default) or
+\code{"flat"}. \code{NULL} (the default) uses \code{getOption("LLMRagent.msg_mode")}, else
+\code{"roleflip"}. An explicit value overrides the global option for this call
+only. See the Message construction section.}
 
 \item{quiet}{If FALSE (default), utterances print as they arrive.}
 
@@ -71,6 +77,19 @@ Replies are stateless (\link{Agent}'s \code{reply()}): the shared transcript is 
 single source of truth, so the same agents can be reused across
 conversations without cross-contamination.
 }
+\section{Message construction}{
+
+By default each speaker sees the conversation role-flipped: its own prior
+turns are \code{assistant} messages and every other speaker's are labeled \code{user}
+messages (via \code{LLMR::transcript_as_messages()}), which gives the model a
+structural handle on what it already said and reduces self-repetition.
+\code{msg_mode = "flat"} (or \code{options(LLMRagent.msg_mode = "flat")}) reverts to the
+legacy construction that pastes the whole attributed transcript into one
+\code{user} message -- useful for reproducing pre-0.7.x runs. The same control
+applies to the presets \code{\link[=debate]{debate()}}, \code{\link[=focus_group]{focus_group()}}, \code{\link[=interview]{interview()}}, and
+\code{\link[=deliberate]{deliberate()}}.
+}
+
 \examples{
 \dontrun{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.8)

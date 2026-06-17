@@ -9,6 +9,7 @@ deliberate(
   proposal,
   rounds = 2L,
   options = c("yes", "no", "abstain"),
+  msg_mode = NULL,
   quiet = FALSE,
   ...
 )
@@ -21,6 +22,9 @@ deliberate(
 \item{rounds}{Discussion rounds before the vote (default 2).}
 
 \item{options}{Vote options. Default \code{c("yes", "no", "abstain")}.}
+
+\item{msg_mode}{Message construction, \code{"roleflip"} (default) or \code{"flat"};
+\code{NULL} uses \code{getOption("LLMRagent.msg_mode")}. See \code{\link[=conversation]{conversation()}}.}
 
 \item{quiet}{FALSE prints the deliberation live.}
 
