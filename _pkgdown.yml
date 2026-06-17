@@ -1,4 +1,4 @@
-url: https://asanaei.github.io/LLMRAgent/
+url: https://asanaei.github.io/LLMRagent/
 
 template:
   bootstrap: 5
@@ -6,7 +6,7 @@ template:
     primary: "#2C3E50"
 
 home:
-  title: "LLMRAgent: language-model agents for R"
+  title: "LLMRagent: language-model agents for R"
 
 reference:
 - title: Agents
@@ -43,7 +43,7 @@ reference:
   - load_agent
 - title: Package
   contents:
-  - LLMRAgent-package
+  - LLMRagent-package
 
 articles:
 - title: Articles

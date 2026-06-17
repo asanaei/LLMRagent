@@ -76,7 +76,7 @@ Agent <- R6::R6Class(
     #' @param stream_caller Internal seam for tests: a function
     #'   `(config, messages, callback, ...)` returning an `llmr_response`.
     initialize = function(name, config, persona = NULL, tools = list(),
-                          memory = memory_buffer(), budget = LLMRAgent::budget(),
+                          memory = memory_buffer(), budget = LLMRagent::budget(),
                           quiet = FALSE, caller = NULL, stream_caller = NULL) {
       stopifnot(is.character(name), length(name) == 1L, nzchar(name))
       .check_config(config)
@@ -456,7 +456,7 @@ Agent <- R6::R6Class(
 #'   [conversation()], [agent_experiment()]
 #' @export
 agent <- function(name, config, persona = NULL, tools = list(),
-                  memory = memory_buffer(), budget = LLMRAgent::budget(),
+                  memory = memory_buffer(), budget = LLMRagent::budget(),
                   quiet = FALSE) {
   Agent$new(name = name, config = config, persona = persona, tools = tools,
             memory = memory, budget = budget, quiet = quiet)

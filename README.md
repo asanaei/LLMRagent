@@ -1,10 +1,10 @@
-# LLMRAgent <img src="man/figures/logo.png" align="right" width="120" alt="LLMRAgent logo" />
+# LLMRagent <img src="man/figures/logo.png" align="right" width="120" alt="LLMRagent logo" />
 
 <!-- badges: start -->
-[![R-CMD-check](https://github.com/asanaei/LLMRAgent/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/asanaei/LLMRAgent/actions/workflows/R-CMD-check.yaml)
+[![R-CMD-check](https://github.com/asanaei/LLMRagent/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/asanaei/LLMRagent/actions/workflows/R-CMD-check.yaml)
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Website](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://asanaei.github.io/LLMRAgent/)
+[![Website](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://asanaei.github.io/LLMRagent/)
 <!-- badges: end -->
 
 Language-model **agents for R**, built on [LLMR](https://github.com/asanaei/LLMR):
@@ -16,9 +16,9 @@ anyone in R who wants a capable agent in five lines.
 
 ```r
 # install.packages("remotes")
-remotes::install_github("asanaei/LLMRAgent")
+remotes::install_github("asanaei/LLMRagent")
 
-library(LLMRAgent)
+library(LLMRagent)
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b")   # any LLMR provider works
 
 ada <- agent("Ada", cfg, persona = "A meticulous statistician. Be brief.")
@@ -100,24 +100,24 @@ d$decision
 
 ## Vignettes
 
-- *LLMRAgent in 10 minutes* — agents, tools, budgets, delegation, pipelines.
+- *LLMRagent in 10 minutes* — agents, tools, budgets, delegation, pipelines.
 - *Designed conversations* — debates, focus groups, interviews, deliberations.
 - *The super-brain pattern* — strong-plus-cheap orchestration.
 - *A deliberation experiment* — a complete factorial study with analysis.
 
-All articles and reference: <https://asanaei.github.io/LLMRAgent/>
+All articles and reference: <https://asanaei.github.io/LLMRagent/>
 
 ## Relation to LLMR
 
 [LLMR](https://asanaei.github.io/LLMR/) supplies the provider layer: 14+
 providers, retries, structured output, tool execution, streaming, parallel
-calls, audit logging, batch APIs. LLMRAgent adds the agent abstractions on
+calls, audit logging, batch APIs. LLMRagent adds the agent abstractions on
 top. Anything configured in LLMR (provider, model, sampling, caching,
 logging) works unchanged here.
 
 ## The LLMR ecosystem
 
-LLMRAgent is one member of a family of packages for LLM-assisted research
+LLMRagent is one member of a family of packages for LLM-assisted research
 built on [LLMR](https://asanaei.github.io/LLMR/). The method packages cover
 measurement and its defense:
 [LLMRcoder](https://asanaei.github.io/LLMRcoder/) provides codebook-first

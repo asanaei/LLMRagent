@@ -34,7 +34,7 @@ the volume goes to the cheap model. And unlike a single oracular answer,
 every intermediate product is retained for inspection.
 
 ```{r run}
-library(LLMRAgent)
+library(LLMRagent)
 
 strong <- LLMR::llm_config("deepseek", "deepseek-reasoner")
 cheap  <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.8)

@@ -55,7 +55,7 @@ test_that("memory state round-trips through save/load", {
   m <- memory_buffer(keep = 7)
   m$add("user", "alpha")$add("assistant", "beta")
   st <- m$state()
-  m2 <- LLMRAgent:::memory_restore(st)
+  m2 <- LLMRagent:::memory_restore(st)
   expect_identical(vapply(m2$get(), `[[`, "", "content"), c("alpha", "beta"))
 })
 
@@ -103,7 +103,7 @@ test_that("summary memory can bill compaction to a dedicated cheap model", {
     expect_equal(m$size(), 3L)                    # summary note + 2 kept
 
     # and the dedicated config survives a save/load round trip
-    m2 <- LLMRAgent:::memory_restore(m$state())
+    m2 <- LLMRagent:::memory_restore(m$state())
     m2$compact(LLMR::llm_config("groq", "main-model"))
     expect_identical(seen_model, "cheap-model")
   })

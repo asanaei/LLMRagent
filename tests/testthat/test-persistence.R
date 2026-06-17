@@ -22,7 +22,7 @@ test_that("load_agent rejects foreign files", {
   path <- tempfile(fileext = ".rds")
   on.exit(unlink(path))
   saveRDS(list(unrelated = TRUE), path)
-  expect_error(load_agent(path), "saved LLMRAgent agent")
+  expect_error(load_agent(path), "saved LLMRagent agent")
 })
 
 test_that("budgets keep binding across save/load: counters carry over", {
@@ -38,7 +38,7 @@ test_that("budgets keep binding across save/load: counters carry over", {
   expect_equal(b$usage()$calls, 1L)              # the past is remembered
   expect_true(nrow(b$trace()) > 0L)              # trace came along
   # one more call is allowed, the next must hit the (restored) ceiling
-  b2 <- LLMRAgent:::Agent$new(
+  b2 <- LLMRagent:::Agent$new(
     name = b$name, config = b$config, persona = b$persona,
     memory = b$memory, budget = b$budget, quiet = TRUE,
     caller = scripted_caller(list("two", "three")))

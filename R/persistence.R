@@ -28,7 +28,7 @@
 save_agent <- function(x, path) {
   stopifnot(inherits(x, "Agent"))
   state <- list(
-    llmragent_version = as.character(utils::packageVersion("LLMRAgent")),
+    llmragent_version = as.character(utils::packageVersion("LLMRagent")),
     name = x$name,
     persona = x$persona,
     config = x$config,
@@ -60,7 +60,7 @@ save_agent <- function(x, path) {
 load_agent <- function(path, tools = list(), embed_config = NULL) {
   state <- readRDS(path)
   if (!is.list(state) || is.null(state$name) || is.null(state$config)) {
-    stop("File does not contain a saved LLMRAgent agent.", call. = FALSE)
+    stop("File does not contain a saved LLMRagent agent.", call. = FALSE)
   }
   mem <- memory_restore(state$memory, embed_config = embed_config)
   out <- agent(name = state$name, config = state$config,

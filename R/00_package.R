@@ -1,8 +1,8 @@
 # 00_package.R ----------------------------------------------------------------
 
-#' LLMRAgent: agents, multi-agent conversations, and agent experiments
+#' LLMRagent: agents, multi-agent conversations, and agent experiments
 #'
-#' LLMRAgent builds on LLMR's provider layer to provide:
+#' LLMRagent builds on LLMR's provider layer to provide:
 #'
 #' - [agent()]: an agent with a persona, an LLMR model config, native tool
 #'   calling, pluggable memory, and hard budgets; replies can stream live

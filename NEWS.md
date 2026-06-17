@@ -1,4 +1,4 @@
-# LLMRAgent 0.7.1
+# LLMRagent 0.7.1
 
 A ground-up rewrite on LLMR (>= 0.8.3). The package now centers on one
 R6 `Agent` and a small set of composable layers above it.

@@ -3,7 +3,7 @@ name: llmragent
 description: LLM agents for R built on LLMR - personas, tools, pluggable memory, hard budgets, agents delegating to agents, multi-agent conversations (debate, focus group, interview, deliberation), factorial agent experiments, strong-plus-cheap orchestration.
 ---
 
-# LLMRAgent — usage capsule for AI assistants
+# LLMRagent — usage capsule for AI assistants
 
 One file to use the package correctly. For depth: the four vignettes
 (`getting-started`, `designed-conversations`, `super-brain`,
@@ -12,7 +12,7 @@ One file to use the package correctly. For depth: the four vignettes
 ## Install
 
 ```r
-remotes::install_github("asanaei/LLMRAgent")   # depends on LLMR (>= 0.8.3)
+remotes::install_github("asanaei/LLMRagent")   # depends on LLMR (>= 0.8.3)
 ```
 
 ## Core API
@@ -49,7 +49,7 @@ save_agent(x, path); load_agent(path, tools = list(), embed_config = NULL)
 ## Canonical patterns
 
 ```r
-library(LLMRAgent)
+library(LLMRagent)
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.7)
 
 # one agent, stateful

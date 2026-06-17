@@ -1,8 +1,8 @@
 ---
-title: "LLMRAgent in 10 minutes"
+title: "LLMRagent in 10 minutes"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{LLMRAgent in 10 minutes}
+  %\VignetteIndexEntry{LLMRagent in 10 minutes}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -20,7 +20,7 @@ vignette builds one of each. Examples use the open-weight `gpt-oss-20b` on
 Groq; set `GROQ_API_KEY` and `LLMRAGENT_RUN_VIGNETTES=true` to run them.
 
 ```{r setup}
-library(LLMRAgent)
+library(LLMRagent)
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.7)
 ```
 
@@ -49,7 +49,7 @@ ada$chat("Explain cross-validation to a newcomer, in one paragraph.",
 ## Tools: let the agent call your R functions
 
 Anything you can write as an R function can become a tool. The agent decides
-when to call it; LLMRAgent executes the call and feeds the result back.
+when to call it; LLMRagent executes the call and feeds the result back.
 
 ```{r tools}
 lookup_gdp <- LLMR::llm_tool(

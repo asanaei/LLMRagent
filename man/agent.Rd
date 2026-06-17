@@ -10,7 +10,7 @@ agent(
   persona = NULL,
   tools = list(),
   memory = memory_buffer(),
-  budget = LLMRAgent::budget(),
+  budget = LLMRagent::budget(),
   quiet = FALSE
 )
 }

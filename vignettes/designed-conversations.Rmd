@@ -17,7 +17,7 @@ knitr::opts_chunk$set(
 Social research has spent a century refining conversation formats: the
 debate elicits the strongest case each side can muster; the focus group
 surfaces how opinions move in company; the interview goes deep on one
-person; the deliberation ends in a decision. LLMRAgent ships each as a
+person; the deliberation ends in a decision. LLMRagent ships each as a
 one-call preset. All four share the same anatomy -- agents built with
 `agent()`, a shared attributed transcript, tidy returns -- so what you learn
 on one transfers to the rest.
@@ -25,7 +25,7 @@ on one transfers to the rest.
 Throughout, one model and one cast:
 
 ```{r setup}
-library(LLMRAgent)
+library(LLMRagent)
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.8)
 ```
 

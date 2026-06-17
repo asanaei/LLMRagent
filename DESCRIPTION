@@ -1,5 +1,5 @@
 Type: Package
-Package: LLMRAgent
+Package: LLMRagent
 Title: Agents, Multi-Agent Conversations, and Agent Experiments for R
 Version: 0.7.1
 Authors@R:
@@ -34,6 +34,5 @@ Suggests:
     dplyr
 Config/testthat/edition: 3
 VignetteBuilder: knitr
-URL: https://github.com/asanaei/LLMRAgent, https://asanaei.github.io/LLMRAgent/
-BugReports: https://github.com/asanaei/LLMRAgent/issues
-Remotes: asanaei/LLMR
+URL: https://github.com/asanaei/LLMRagent, https://asanaei.github.io/LLMRagent/
+BugReports: https://github.com/asanaei/LLMRagent/issues

@@ -28,7 +28,7 @@ tool for theory development and instrument piloting, not a substitute for
 human subjects.
 
 ```{r design}
-library(LLMRAgent)
+library(LLMRagent)
 
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.9)
 
