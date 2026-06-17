@@ -122,13 +122,12 @@ conversation <- function(agents, topic,
       "Do not write lines for other participants and do not prefix your reply with your name.",
       instruction
     ), collapse = "\n")
-    usr <- if (nrow(transcript)) {
-      paste0("Dialogue so far:\n\n", .render_dialogue(transcript),
-             "\n\nIt is your turn, ", who, ".")
+    turn_cue <- if (nrow(transcript)) {
+      paste0("It is your turn, ", who, ".")
     } else {
       paste0("You speak first, ", who, ". Open the conversation.")
     }
-    text <- spk$reply(c(system = sys, user = usr), ...)
+    text <- spk$reply(.dialogue_messages(transcript, who, sys, turn_cue), ...)
     transcript <- rbind(transcript, tibble::tibble(
       turn = t, speaker = who, text = text))
     if (!quiet) cli::cli_text("{.strong {who}}: {text}")

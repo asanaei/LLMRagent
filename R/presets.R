@@ -60,14 +60,14 @@ debate <- function(pro, con, topic, rounds = 2L, judge = NULL,
       sprintf("You argue %s the motion. This is your %s statement.", side, phase),
       "Address the strongest opposing points; do not strawman. Be concise."),
       collapse = "\n")
-    usr <- if (nrow(transcript)) {
-      paste0("Debate so far:\n\n",
-             .render_dialogue(transcript[, c("speaker", "text")]),
-             "\n\nDeliver your ", phase, " statement.")
+    turn_cue <- if (nrow(transcript)) {
+      paste0("Deliver your ", phase, " statement.")
     } else {
       "Deliver your opening statement."
     }
-    text <- spk$reply(c(system = sys, user = usr), ...)
+    text <- spk$reply(
+      .dialogue_messages(transcript[, c("speaker", "text")], spk$name, sys, turn_cue),
+      ...)
     transcript <- rbind(transcript, tibble::tibble(
       turn = t, phase = phase, speaker = spk$name, text = text))
     if (!quiet) cli::cli_text("{.strong {spk$name}} ({phase}): {text}")
@@ -187,11 +187,11 @@ focus_group <- function(moderator, participants, topic,
         "Answer the moderator's question honestly, in character, in a few sentences.",
         "React to other participants when you genuinely agree or disagree."),
         collapse = "\n")
-      usr <- paste0("Discussion so far:\n\n",
-                    .render_dialogue(transcript[, c("speaker", "text")]),
-                    "\n\nThe moderator's current question is: ", questions[[q]],
-                    "\nYour answer, ", spk$name, ":")
-      text <- spk$reply(c(system = sys, user = usr), ...)
+      turn_cue <- paste0("The moderator's current question is: ", questions[[q]],
+                         "\nYour answer, ", spk$name, ":")
+      text <- spk$reply(
+        .dialogue_messages(transcript[, c("speaker", "text")], spk$name, sys, turn_cue),
+        ...)
       t <- t + 1L
       transcript <- rbind(transcript, tibble::tibble(
         turn = t, question_id = q, speaker = spk$name, text = text))
@@ -275,21 +275,23 @@ interview <- function(interviewer, respondent, topic,
   }
 
   rows <- list()
-  history <- character(0)
+  # Shared transcript (Interviewer / respondent turns) so the respondent's own
+  # prior answers role-flip to assistant and the interviewer's questions are
+  # labeled user turns.
+  history <- tibble::tibble(speaker = character(0), text = character(0))
   ask_one <- function(question, type, ord) {
     sys <- paste(c(
       respondent$persona,
       paste0("You are being interviewed about: ", topic, "."),
       "Answer in character, concretely, with examples from your life."),
       collapse = "\n")
-    usr <- paste0(
-      if (length(history)) paste0("Interview so far:\n\n",
-                                  paste(history, collapse = "\n\n"), "\n\n") else "",
-      "Interviewer: ", question)
-    ans <- respondent$reply(c(system = sys, user = usr), ...)
-    history <<- c(history,
-                  paste0("Interviewer: ", question),
-                  paste0(respondent$name, ": ", ans))
+    # put the current question on the transcript as the trailing Interviewer turn
+    hist_now <- rbind(history, tibble::tibble(speaker = "Interviewer", text = question))
+    ans <- respondent$reply(
+      .dialogue_messages(hist_now, respondent$name, sys, turn = NULL), ...)
+    history <<- rbind(history,
+                      tibble::tibble(speaker = "Interviewer", text = question),
+                      tibble::tibble(speaker = respondent$name, text = ans))
     if (!quiet) {
       cli::cli_text("{.strong Q{ord}}: {question}")
       cli::cli_text("{.strong {respondent$name}}: {ans}")
@@ -369,14 +371,13 @@ deliberate <- function(agents, proposal, rounds = 2L,
       sys <- paste(c(
         spk$persona,
         paste0("You are ", spk$name, ", deliberating with colleagues on a proposal."),
+        paste0("Proposal: ", proposal),
         "State your current position and engage the strongest argument you disagree with.",
         "A few sentences only."), collapse = "\n")
-      usr <- paste0(
-        "Proposal: ", proposal,
-        if (nrow(transcript)) paste0("\n\nDeliberation so far:\n\n",
-                                     .render_dialogue(transcript[, c("speaker", "text")])) else "",
-        "\n\nRound ", r, ". Your contribution, ", spk$name, ":")
-      text <- spk$reply(c(system = sys, user = usr), ...)
+      turn_cue <- paste0("Round ", r, ". Your contribution, ", spk$name, ":")
+      text <- spk$reply(
+        .dialogue_messages(transcript[, c("speaker", "text")], spk$name, sys, turn_cue),
+        ...)
       t <- t + 1L
       transcript <- rbind(transcript, tibble::tibble(
         turn = t, round = r, speaker = spk$name, text = text))
@@ -393,13 +394,18 @@ deliberate <- function(agents, proposal, rounds = 2L,
     required = list("vote", "reason")
   )
   votes <- lapply(agents, function(a) {
+    # A private vote is the agent continuing from its own prior turns, so the
+    # transcript role-flips (the agent's own contributions -> assistant) while
+    # the vote framing leads as system.
+    vote_sys <- paste(c(
+      a$persona,
+      paste0("The deliberation has ended. Proposal: ", proposal)),
+      collapse = "\n")
+    vote_cue <- paste0("Cast your vote now (", paste(options, collapse = "/"),
+                       ") with a one-sentence reason. Vote your honest position, ",
+                       "which may differ from what you said publicly.")
     v <- a$ask_structured(
-      paste0("The deliberation has ended. Proposal: ", proposal,
-             "\n\nFull discussion:\n\n",
-             .render_dialogue(transcript[, c("speaker", "text")]),
-             "\n\nCast your vote now (", paste(options, collapse = "/"),
-             ") with a one-sentence reason. Vote your honest position, ",
-             "which may differ from what you said publicly."),
+      .dialogue_messages(transcript[, c("speaker", "text")], a$name, vote_sys, vote_cue),
       schema = vote_schema, ...)
     tibble::tibble(voter = a$name,
                    vote = as.character(v$vote %||% NA_character_),

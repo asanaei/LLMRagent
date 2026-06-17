@@ -31,10 +31,53 @@
 
 utils::globalVariables(c("speaker", "turn"))
 
-# Internal: render a conversation transcript as readable dialogue.
+# Internal: render a conversation transcript as readable dialogue. Retained for
+# third-person / analysis surfaces (moderator next-speaker choice, judge
+# verdicts, summaries) and for the "flat" message mode.
 .render_dialogue <- function(transcript) {
   if (!nrow(transcript)) return("")
   paste(sprintf("%s: %s", transcript$speaker, transcript$text), collapse = "\n\n")
+}
+
+# The conversation message mode. "roleflip" (default) renders each speaker's own
+# prior turns as assistant messages and others as labeled user messages, via
+# LLMR's provider-safe builder; this is what reduces self-repetition. "flat"
+# reproduces the legacy single-user-message behavior (the whole transcript
+# pasted into one user turn). Settable for experiments via
+# options(LLMRagent.msg_mode = "flat") or per call.
+.msg_mode <- function(mode = NULL) {
+  m <- mode %||% getOption("LLMRagent.msg_mode", "roleflip")
+  m <- match.arg(as.character(m), c("roleflip", "flat"))
+  m
+}
+
+# Internal: build the message list for `speaker`'s next turn from the shared
+# transcript. `sys` is the persona + role instruction (-> system); `turn` is the
+# trailing "your turn" / current-question cue (-> final user turn). In "flat"
+# mode it reproduces the legacy c(system=, user="Dialogue so far:\n...") shape;
+# in "roleflip" mode it delegates to LLMR::transcript_as_messages(). All
+# role-flip / coalesce / sanitize logic lives in LLMR.
+.dialogue_messages <- function(transcript, speaker, sys = NULL, turn = NULL,
+                               mode = NULL) {
+  mode <- .msg_mode(mode)
+  if (identical(mode, "flat")) {
+    usr <- if (nrow(transcript)) {
+      paste0("Dialogue so far:\n\n", .render_dialogue(transcript),
+             if (!is.null(turn)) paste0("\n\n", turn) else "")
+    } else {
+      turn %||% ""
+    }
+    out <- list()
+    if (!is.null(sys) && nzchar(sys)) out <- c(out, list(list(role = "system", content = sys)))
+    c(out, list(list(role = "user", content = usr)))
+  } else {
+    LLMR::transcript_as_messages(
+      transcript  = transcript[, c("speaker", "text"), drop = FALSE],
+      speaker     = speaker,
+      system      = sys,
+      instruction = turn
+    )
+  }
 }
 
 # Internal: one place to validate llm_config arguments.

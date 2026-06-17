@@ -19,10 +19,41 @@ test_that("each speaker sees the full attributed dialogue", {
   a <- Agent$new("Ana", cfg, caller = watcher, quiet = TRUE)
   b <- Agent$new("Ben", cfg, caller = watcher, quiet = TRUE)
   conversation(list(a, b), topic = "context test", max_turns = 3, quiet = TRUE)
+  # turn 3 is Ana speaking again, having seen [Ana: noted, Ben: noted]
   third <- seen[[3]]
-  usr <- unname(third[names(third) == "user"])
-  expect_match(usr, "Ana: noted")
-  expect_match(usr, "Ben: noted")
+  roles <- vapply(third, function(m) m$role, character(1))
+  contents <- vapply(third, function(m) as.character(m$content %||% ""), character(1))
+
+  # leading system, strictly alternating, first non-system is user
+  expect_identical(roles[1], "system")
+  nonsys <- which(roles != "system")
+  expect_identical(roles[nonsys[1]], "user")
+  expect_false(any(roles[-1] == roles[-length(roles)]))
+
+  # Ana's own prior turn is an assistant message, with NO name prefix
+  expect_true(any(roles == "assistant" & contents == "noted"))
+  # Ben's turn is labeled inside a user message
+  expect_true(any(roles == "user" & grepl("Ben: noted", contents)))
+})
+
+test_that("flat message mode reproduces the legacy single-user transcript", {
+  withr::local_options(LLMRagent.msg_mode = "flat")
+  seen <- list()
+  watcher <- function(config, messages, tools, ...) {
+    seen[[length(seen) + 1L]] <<- messages
+    fake_response("noted")
+  }
+  cfg <- LLMR::llm_config("groq", "fake-model")
+  a <- Agent$new("Ana", cfg, caller = watcher, quiet = TRUE)
+  b <- Agent$new("Ben", cfg, caller = watcher, quiet = TRUE)
+  conversation(list(a, b), topic = "context test", max_turns = 3, quiet = TRUE)
+  third <- seen[[3]]
+  roles <- vapply(third, function(m) m$role, character(1))
+  contents <- vapply(third, function(m) as.character(m$content %||% ""), character(1))
+  # legacy shape: system + ONE user turn carrying the whole flat transcript
+  expect_identical(roles, c("system", "user"))
+  expect_match(contents[2], "Ana: noted")
+  expect_match(contents[2], "Ben: noted")
 })
 
 test_that("an opening statement lands on the transcript", {
