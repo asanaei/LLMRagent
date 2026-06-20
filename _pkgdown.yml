@@ -33,7 +33,7 @@ reference:
   - focus_group
   - interview
   - deliberate
-- title: Experiments and orchestration
+- title: Experiments
   contents:
   - agent_experiment
   - think_harder
@@ -41,15 +41,106 @@ reference:
   contents:
   - save_agent
   - load_agent
+- title: Provenance and reproducibility
+  desc: >
+    Turn any run into one unified object, hash its inputs, and seal a
+    replayable archive.
+  contents:
+  - as_agent_run
+  - agent_manifest
+  - archive_agent_study
+  - hash_persona
+  - hash_tool_spec
+  - hash_workflow
+- title: Governance
+  desc: >
+    Declared tool side effects, guardrails, human approval gates, and
+    state-leakage diagnostics.
+  contents:
+  - agent_tool
+  - guardrail
+  - guardrails
+  - human_gate
+  - approve_tool_call
+  - resume_run
+  - check_state_leakage
+- title: Validity
+  desc: >
+    Anti-essentialist personas, claim-type discipline, a calibration
+    bridge, and robustness batteries.
+  contents:
+  - persona_frame
+  - persona_variants
+  - persona_audit
+  - mark_claim_type
+  - llm_claim_lint
+  - agent_calibrate
+  - attach_calibration
+  - as_llmrcontent_validation
+  - agent_robustness
+  - vary_models
+  - vary_temperature
+  - vary_prompt
+  - vary_persona
+  - vary_option_order
+- title: Workflows
+  desc: >
+    A small, auditable DAG runtime with checkpoint, resume, fork, and
+    replay.
+  contents:
+  - agent_workflow
+  - add_node
+  - add_edge
+  - run_workflow
+  - resume_workflow
+  - fork_workflow
+  - replay_run
+  - workflow_from_pipeline
+- title: External tools and simulation
+  desc: >
+    A governed MCP client, sandboxed tools, social-simulation
+    scaffolding, and an HTML run inspector.
+  contents:
+  - mcp_tools
+  - sandbox_tool
+  - agent_population
+  - society
+  - step_interaction
+  - collect_measures
+  - exposure_matrix
+  - contamination_report
+  - view_run
+- title: Diagnostics and reporting
+  desc: >
+    LLMR-family generics registered for LLMRagent objects: machine-readable
+    health numbers, methods-section drafts, and state reset.
+  contents:
+  - llmragent-methods
+  - reexports
+  - diagnostics.agent_run
+  - diagnostics.agent_experiment
+  - diagnostics.agent_calibration
+  - diagnostics.persona_audit
+  - report.agent_run
+  - report.agent_experiment
+  - report.society
+  - reset.Agent
 - title: Package
   contents:
   - LLMRagent-package
 
 articles:
-- title: Articles
-  navbar: ~
+- title: Getting started
+  navbar: Getting started
   contents:
   - getting-started
   - designed-conversations
   - super-brain
   - deliberation-experiment
+- title: Doing it rigorously
+  navbar: Rigor
+  contents:
+  - provenance-and-archiving
+  - governed-tools-and-human-review
+  - validity-robustness-and-calibration
+  - workflows

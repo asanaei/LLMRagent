@@ -2,7 +2,7 @@
 % Please edit documentation in R/superbrain.R
 \name{think_harder}
 \alias{think_harder}
-\title{Crack a hard problem with one strong model and many cheap ones}
+\title{Work a hard problem with one strong model and many cheap ones}
 \usage{
 think_harder(
   problem,

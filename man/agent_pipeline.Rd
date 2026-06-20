@@ -23,9 +23,9 @@ text). \code{as.data.frame()} returns the steps.
 \description{
 Each agent receives the previous agent's output as its message (the first
 receives \code{input}), transforms it according to its persona, and hands the
-result on. The classic use is an assembly line of narrow specialists --
-extract, then translate, then critique -- where each stage is easy to
-inspect, test, and swap.
+result on. A common use is a fixed sequence of narrow specialists:
+extract, then translate, then critique. Each stage is easy to inspect,
+test, and swap.
 }
 \details{
 Stages are stateless (\code{reply()}), so the same agents can serve in several

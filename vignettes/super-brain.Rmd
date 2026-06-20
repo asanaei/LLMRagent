@@ -7,16 +7,16 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r}
+```{r, include=FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE, comment = "#>",
   eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
 )
 ```
 
-Strong models are expensive where cheap models are merely mediocre: broad
-exploration. The reverse also holds: cheap models explore well in volume but
-synthesize poorly. `think_harder()` exploits the asymmetry with a fixed
+Strong models cost the most on the task where cheap models are weakest: broad
+exploration that then has to be drawn together. Cheap models produce many
+independent drafts but synthesize them poorly. `think_harder()` uses this
 division of labor:
 
 1. **Plan.** The strong model decomposes the problem into genuinely different
@@ -30,8 +30,8 @@ division of labor:
    (one or two calls).
 
 Whatever the fan-out width, the strong model is billed for two to four calls;
-the volume goes to the cheap model. And unlike a single oracular answer,
-every intermediate product is retained for inspection.
+the volume goes to the cheap model. And unlike a single unsupported answer,
+every intermediate product is kept for inspection.
 
 ```{r run}
 library(LLMRagent)
@@ -66,9 +66,9 @@ Two practical notes. First, worker drafts are independent by construction;
 if you see near-identical drafts, your approaches were paraphrases, and the
 remedy is a better problem statement, not more workers. Second, the pattern
 composes with `LLMR::llm_log_enable()`: turn it on beforehand and the whole
-orchestration, every worker included, lands in one auditable JSONL file.
+orchestration, every worker included, is written to one auditable JSONL file.
 
 `think_harder()` is a fixed pipeline: plan, work, synthesize, verify. When
 you want the strong model to decide for itself when and whom to consult,
-build the same economics free-form with `agent_as_tool()`: give a strong
+build the same arrangement directly with `agent_as_tool()`: give a strong
 supervisor several cheap specialists as tools and let it route the work.

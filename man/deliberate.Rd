@@ -39,9 +39,8 @@ and \code{proposal}. \code{as.data.frame()} returns the transcript.
 \description{
 Agents discuss a proposal for a fixed number of rounds (everyone speaks
 each round, seeing the discussion so far), then vote independently and
-privately through structured output. Comparing votes cast after
-deliberation with positions voiced during it is exactly the kind of
-analysis the tidy return enables.
+privately through structured output. The tidy return supports comparing
+votes cast after deliberation with positions voiced during it.
 }
 \examples{
 \dontrun{

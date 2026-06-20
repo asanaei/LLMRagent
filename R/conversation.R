@@ -17,8 +17,8 @@
 #' - `"random"`: a random speaker each turn, never the same agent twice in a
 #'   row. Set a seed first (e.g. `set.seed(110)`) for a reproducible order.
 #' - `"moderator"`: after each utterance the `moderator` agent chooses who
-#'   speaks next (a structured one-token decision), which yields organic
-#'   dynamics at the cost of one extra cheap call per turn.
+#'   speaks next (a structured one-token decision), which lets the moderator
+#'   shape the turn order at the cost of one extra model call per turn.
 #'
 #' Replies are stateless ([Agent]'s `reply()`): the shared transcript is the
 #' single source of truth, so the same agents can be reused across
@@ -46,8 +46,8 @@
 #' @section Message construction:
 #' By default each speaker sees the conversation role-flipped: its own prior
 #' turns are `assistant` messages and every other speaker's are labeled `user`
-#' messages (via `LLMR::transcript_as_messages()`), which gives the model a
-#' structural handle on what it already said and reduces self-repetition.
+#' messages (via `LLMR::transcript_as_messages()`), which marks what the model
+#' already said and reduces self-repetition.
 #' `msg_mode = "flat"` (or `options(LLMRagent.msg_mode = "flat")`) reverts to the
 #' legacy construction that pastes the whole attributed transcript into one
 #' `user` message -- useful for reproducing pre-0.7.x runs. The same control
@@ -96,6 +96,16 @@ conversation <- function(agents, topic,
   if (identical(turn_policy, "moderator") && !inherits(moderator, "Agent")) {
     stop("The moderator policy needs `moderator = agent(...)`.", call. = FALSE)
   }
+
+  # Open a run so every participant's spans are stamped with one run id; the
+  # moderator (if any) participates too. Closed before returning.
+  run_agents <- if (inherits(moderator, "Agent")) c(unname(agents), list(moderator)) else unname(agents)
+  rc <- .run_open("conversation",
+                  design = list(topic = topic, turn_policy = turn_policy,
+                                max_turns = max_turns, agents = nms,
+                                instruction = instruction),
+                  agents = run_agents)
+  on.exit(for (a in run_agents) a$bind_run(NULL), add = TRUE)
 
   transcript <- tibble::tibble(turn = integer(0), speaker = character(0),
                                text = character(0))
@@ -159,8 +169,16 @@ conversation <- function(agents, topic,
     if (!is.null(stop_when) && isTRUE(stop_when(transcript))) break
   }
 
-  structure(list(transcript = transcript, topic = topic, agents = nms),
+  structure(list(transcript = transcript, topic = topic, agents = nms,
+                 provenance = .run_close(rc)),
             class = "agent_conversation")
+}
+
+#' @exportS3Method as_agent_run agent_conversation
+as_agent_run.agent_conversation <- function(x, ...) {
+  prov <- x$provenance
+  utt <- .utterances_from_dialogue(x$transcript, prov$run_id)
+  .run_from_provenance(prov, utterances = utt)
 }
 
 #' @export

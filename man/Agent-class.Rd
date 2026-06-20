@@ -42,6 +42,10 @@ plus accessors for the trace, usage, and transcript.
 \item \href{#method-Agent-reply}{\code{Agent$reply()}}
 \item \href{#method-Agent-ask_structured}{\code{Agent$ask_structured()}}
 \item \href{#method-Agent-trace}{\code{Agent$trace()}}
+\item \href{#method-Agent-internal_spans}{\code{Agent$internal_spans()}}
+\item \href{#method-Agent-bind_run}{\code{Agent$bind_run()}}
+\item \href{#method-Agent-id}{\code{Agent$id()}}
+\item \href{#method-Agent-persona_frame}{\code{Agent$persona_frame()}}
 \item \href{#method-Agent-usage}{\code{Agent$usage()}}
 \item \href{#method-Agent-transcript}{\code{Agent$transcript()}}
 \item \href{#method-Agent-reset}{\code{Agent$reset()}}
@@ -63,6 +67,7 @@ Create an agent (prefer the \code{\link[=agent]{agent()}} constructor).
   tools = list(),
   memory = memory_buffer(),
   budget = LLMRagent::budget(),
+  guardrails = NULL,
   quiet = FALSE,
   caller = NULL,
   stream_caller = NULL
@@ -184,9 +189,68 @@ reply stays available in \verb{$last_response}.
 \if{latex}{\out{\hypertarget{method-Agent-trace}{}}}
 \subsection{Method \code{trace()}}{
 The trace: one row per event (model calls, tool runs,
-memory compactions, budget stops) with tokens and timing.
+memory compactions, budget stops) with tokens and timing. This is a
+projection of the internal span store onto the legacy event vocabulary;
+richer event types (guardrail, approval, stream) and span linkage are
+available via \code{as_agent_run(agent)} and \code{tibble::as_tibble(run, "event")}.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{Agent$trace()}\if{html}{\out{</div>}}
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-Agent-internal_spans"></a>}}
+\if{latex}{\out{\hypertarget{method-Agent-internal_spans}{}}}
+\subsection{Method \code{internal_spans()}}{
+The internal span store (one row per event, richer than
+\code{trace()}): the source the run object reads. Mainly for \code{as_agent_run()};
+most users want \code{trace()} or a run object.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{Agent$internal_spans()}\if{html}{\out{</div>}}
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-Agent-bind_run"></a>}}
+\if{latex}{\out{\hypertarget{method-Agent-bind_run}{}}}
+\subsection{Method \code{bind_run()}}{
+Bind this agent to an active run so its spans are stamped
+with \code{run_id}/\code{parent_id} (internal; used by the conversation and
+delegation machinery). Pass \code{run_id = NULL} to unbind.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{Agent$bind_run(run_id = NULL, parent = NA_character_)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{run_id}}{The active run's id, or NULL to unbind.}
+
+\item{\code{parent}}{A parent span id for nesting (e.g. a supervisor's tool span).}
+}
+\if{html}{\out{</div>}}
+}
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-Agent-id"></a>}}
+\if{latex}{\out{\hypertarget{method-Agent-id}{}}}
+\subsection{Method \code{id()}}{
+This agent's stable id (assigned at construction; used to
+attribute spans and to detect shared instances across experiment cells).
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{Agent$id()}\if{html}{\out{</div>}}
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-Agent-persona_frame"></a>}}
+\if{latex}{\out{\hypertarget{method-Agent-persona_frame}{}}}
+\subsection{Method \code{persona_frame()}}{
+The agent's \code{persona_frame()} if one was supplied, else NULL
+(a plain-string persona). Used by the provenance layer for persona
+hashing and scope conditions.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{Agent$persona_frame()}\if{html}{\out{</div>}}
 }
 
 }
@@ -229,7 +293,7 @@ Restore accounting after \code{\link[=load_agent]{load_agent()}} (internal). Cal
 token, and tool counters carry over so budgets stay binding across
 sessions; the wall-clock budget restarts.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{Agent$restore_accounting(usage = NULL, trace = NULL)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{Agent$restore_accounting(usage = NULL, spans = NULL, agent_id = NULL)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
@@ -238,7 +302,10 @@ sessions; the wall-clock budget restarts.
 \item{\code{usage}}{A list or one-row frame with \code{calls}, \code{tokens_sent},
 \code{tokens_received}, \code{tool_calls}.}
 
-\item{\code{trace}}{A trace tibble as returned by \verb{$trace()}.}
+\item{\code{spans}}{A list of span records as returned by \verb{$internal_spans()}.}
+
+\item{\code{agent_id}}{The agent's persisted id (so a reloaded agent keeps its
+identity for leakage checks).}
 }
 \if{html}{\out{</div>}}
 }

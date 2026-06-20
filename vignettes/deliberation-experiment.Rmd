@@ -7,18 +7,18 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r}
+```{r, include=FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE, comment = "#>",
   eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
 )
 ```
 
-Agent-based simulation with language models lets one ask, cheaply and with
-full transcripts, questions that are hard to randomize with humans: does
+Agent-based simulation with language models can pose questions that are hard to
+randomize with human participants, at low cost and with full transcripts: does
 group composition change a collective decision? Here we run a small
 factorial deliberation study, the kind a class or a pilot grant could extend.
-The design: panels of three deliberate on a workplace proposal and then vote
+The design is small: panels of three deliberate on a workplace proposal and then vote
 privately. We vary one factor, whether the panel contains a fiscal skeptic,
 and replicate each cell.
 

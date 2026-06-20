@@ -69,8 +69,8 @@ Turn policies:
 \item \code{"random"}: a random speaker each turn, never the same agent twice in a
 row. Set a seed first (e.g. \code{set.seed(110)}) for a reproducible order.
 \item \code{"moderator"}: after each utterance the \code{moderator} agent chooses who
-speaks next (a structured one-token decision), which yields organic
-dynamics at the cost of one extra cheap call per turn.
+speaks next (a structured one-token decision), which lets the moderator
+shape the turn order at the cost of one extra model call per turn.
 }
 
 Replies are stateless (\link{Agent}'s \code{reply()}): the shared transcript is the
@@ -81,8 +81,8 @@ conversations without cross-contamination.
 
 By default each speaker sees the conversation role-flipped: its own prior
 turns are \code{assistant} messages and every other speaker's are labeled \code{user}
-messages (via \code{LLMR::transcript_as_messages()}), which gives the model a
-structural handle on what it already said and reduces self-repetition.
+messages (via \code{LLMR::transcript_as_messages()}), which marks what the model
+already said and reduces self-repetition.
 \code{msg_mode = "flat"} (or \code{options(LLMRagent.msg_mode = "flat")}) reverts to the
 legacy construction that pastes the whole attributed transcript into one
 \code{user} message -- useful for reproducing pre-0.7.x runs. The same control

@@ -1,0 +1,160 @@
+---
+title: "Validity: robustness, calibration, and honest claims"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Validity: robustness, calibration, and honest claims}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
+)
+```
+
+A language model will answer almost anything you ask, fluently, whether or not
+the answer means what you hope it means. The danger in using one for research is
+not that it stays silent; it is that it speaks confidently about a population it
+has never observed, and that small changes to the prompt move the answer in ways
+you never see. This vignette covers three habits that keep a model-generated
+result honest: testing whether it survives perturbation, calibrating it against
+human labels before you treat it as a measurement, and naming what kind of claim
+you are actually making.
+
+```{r setup}
+library(LLMRagent)
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.7)
+```
+
+## Robustness: does the result survive a nudge?
+
+Suppose you ask a model to rate how risky an activity is. A defensible result is
+one that barely moves when you raise the temperature, reorder the options, or
+reword the question. A fragile result is one that swings. `agent_robustness()`
+runs your procedure across a grid of such perturbations and reports how much the
+answer moves along each axis.
+
+You write the procedure once, as a function of a condition. The battery varies
+the axes you name and hands each cell its own perturbed settings:
+
+```{r robustness}
+rate_risk <- function(cond, rep) {
+  cfg_i <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+                            temperature = as.numeric(cond$temperature))
+  a <- agent("Rater", cfg_i)
+  r <- a$reply("On a scale of 1 to 10, how risky is skydiving? Reply with only the integer.")
+  as.numeric(gsub("[^0-9].*$", "", trimws(r)))
+}
+
+battery <- agent_robustness(
+  rate_risk,
+  vary    = list(temperature = c("0", "1")),
+  reps    = 3,
+  measure = function(r) r,
+  .config = cfg
+)
+
+battery$by_axis   # instability, dispersion, agreement along each axis
+battery$overall   # a single 'fragile' verdict
+```
+
+For a numeric measure the per-axis agreement is an interval Krippendorff alpha;
+for a categorical one it is nominal. The `fragile` flag in `overall` is a coarse
+warning, not a verdict: read `by_axis` to see which axis is doing the damage. If
+your task is single-item coding rather than a multi-agent procedure, you can omit
+`run_fn` entirely and let the battery drive 'LLMR''s replication machinery
+directly.
+
+One degree of freedom the battery closes is selective paraphrasing. It is easy,
+and tempting, to try a handful of rewordings and keep the one that "works".
+`vary_prompt()` with `paraphrase =` generates the rewordings for you, from the
+actual prompt, and records them in the manifest, so the rewordings become an
+archived axis of the study rather than a hidden degree of freedom.
+
+## Calibration: from a guess to a measurement
+
+When you use a model to code text (is this response anxious, is this comment
+toxic, does this abstract concern climate), the raw rate of "yes" answers is a
+biased estimate of the true rate, because the model makes mistakes. Calibration
+corrects that bias using a small set of human-labeled examples, and gives you an
+honest interval instead of a point you should not trust.
+
+The shape of the call matters, so look closely. You have model predictions on
+**all** units. You have human gold labels on a **subset**. You tell
+`agent_calibrate()` which units are which:
+
+```{r calibrate}
+# model coded all 12 statements; a human labeled the first 6
+preds <- c(1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0)   # the model's codings (all units)
+gold  <- tibble::tibble(id = 1:6, value = c(1, 0, 1, 0, 1, 0))  # human labels (subset)
+
+cal <- agent_calibrate(
+  predictions = preds,
+  gold        = gold,        # (id, value): the labeled subset
+  id          = 1:12,        # the id vector for ALL units (length == length(preds))
+  method      = "ppi",
+  estimand    = "proportion"
+)
+
+cal$naive$estimate     # the biased plug-in: just mean(preds)
+cal$estimate           # the calibrated estimate, with a confidence interval
+```
+
+The contract is the easy thing to get wrong, so read it closely. `id` is
+the identifier for every unit, the same length as `predictions`; the ids in
+`gold` are matched into it to locate the labeled rows. The estimate columns are
+`estimate`, `std_error`, `conf_low`, `conf_high`. The `method = "naive"` row is
+there only for contrast: it is the number you would have reported without
+calibration, and you should not report it.
+
+A word on the statistics, stated plainly. The estimator here is
+prediction-powered inference (PPI): the estimate is the model's mean corrected
+by the average labeling error on the gold set, with a matching variance. Under a
+simple random gold sample this also coincides with the design-based (DSL) point
+estimate. The interval is honest but simple; for weighted or
+non-random gold samples, or for careful regression inference, use a full
+implementation through the calibration bridge (`as_llmrcontent_validation()`).
+
+`attach_calibration(run, cal)` ties a calibration to a run. That does two things:
+it folds the calibration into the study manifest, and it permits the one claim
+type you are otherwise forbidden from making.
+
+## Claim types: say what you mean
+
+The last habit is the simplest and the most easily forgotten. State what kind of
+claim a run supports, and let the package hold you to it.
+
+```{r claims}
+run <- as_agent_run(
+  agent("Coder", cfg)$reply("Is this abstract about climate? Answer yes or no.\n...")
+)
+
+# a coding run is a coding run; calling it a population estimate is refused
+tryCatch(
+  mark_claim_type(run, "calibrated_inference"),
+  llmragent_claim_error = function(e) "refused: no calibration is attached"
+)
+
+mark_claim_type(run, "coding")   # this is honest
+```
+
+Four types are recognized: `instrument_pilot` (you are still tuning the prompt),
+`theory_probe` (you are exploring what a model will say, not measuring a
+population), `coding` (the model is annotating data, to be validated against gold),
+and `calibrated_inference` (you have done the validation and may speak about a
+rate). The last is refused unless a calibration is attached, and `report()`
+will not let population-estimate phrasing through without it. The aim is to make
+population-level language conditional on calibration. Without it, `report()`
+refuses or scopes any population-estimate phrasing.
+
+## The shape of an honest study
+
+Put together, the three habits describe a workflow. Pilot the prompt and call it
+a pilot. Code the data and call it coding. Validate against a gold set, attach
+the calibration, and only then speak about a rate, with the interval calibration
+gives you. Test that the whole thing survives perturbation, and archive the
+robustness battery alongside the result. None of this makes the model more
+truthful. It makes your account of what the model did something a careful reader
+can accept.

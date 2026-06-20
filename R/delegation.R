@@ -63,7 +63,7 @@ agent_as_tool <- function(x, name = NULL, description = NULL) {
            " Send one complete, self-contained question;",
            " it sees nothing but your message.")
   }
-  LLMR::llm_tool(
+  tool <- LLMR::llm_tool(
     function(question) x$reply(as.character(question)[1]),
     name = nm,
     description = desc,
@@ -71,4 +71,22 @@ agent_as_tool <- function(x, name = NULL, description = NULL) {
       type = "string",
       description = "A complete, self-contained question or task."))
   )
+  # Link the specialist so a run that includes the supervisor also binds the
+  # specialist: its consultation spans then nest in the same run's event graph.
+  attr(tool, "delegate_agent") <- x
+  tool
+}
+
+# Internal: collect the specialist agents reachable through an agent's
+# delegate-tools (one level), so a run can bind them alongside the supervisor.
+#' @keywords internal
+#' @noRd
+.delegate_agents <- function(agent) {
+  tls <- tryCatch(agent$tools, error = function(e) list())
+  out <- list()
+  for (t in tls) {
+    da <- attr(t, "delegate_agent")
+    if (inherits(da, "Agent")) out[[length(out) + 1L]] <- da
+  }
+  out
 }

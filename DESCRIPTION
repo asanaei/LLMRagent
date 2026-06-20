@@ -1,17 +1,27 @@
 Type: Package
 Package: LLMRagent
-Title: Agents, Multi-Agent Conversations, and Agent Experiments for R
-Version: 0.7.1
+Title: Reproducible Language-Model Agents for Research
+Version: 0.8.0
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
-Description: Build language-model agents in R on top of the 'LLMR' package:
-  agents with personas, native tool calling, pluggable memory, and hard
-  budgets; multi-agent conversations with shared transcripts and turn-taking
-  policies (debates, focus groups, interviews, deliberations with votes);
-  factorial agent experiments run in parallel with seeds and tidy results;
-  and an orchestrator that pairs one strong model with many cheap workers.
-  Every run produces a tidy transcript and a trace of calls, tokens, and
-  timings, so agent-based studies are inspectable and reproducible.
+Description: Build language-model agents in R on top of the 'LLMR' package, with
+  reproducibility and governance treated as primary concerns. An agent works
+  from a persona, calls native R tools, keeps memory, and stays within a
+  declared budget. Several agents converse over a shared transcript under a
+  turn-taking policy, which supplies presets for debates, focus groups,
+  interviews, and deliberations with votes; factorial experiments over those
+  designs run in parallel and return tidy results. Every run converts to one
+  object that exposes utterance, event, call, tool, and state views, a study
+  manifest of content hashes, and a sealed replication archive whose call log
+  reads back through 'LLMR'. Governance covers declared tool side effects,
+  guardrails on inputs, outputs, and tool results, human approval gates that
+  pause and resume, and diagnostics for state leakage. Validity helpers provide
+  robustness batteries, calibration with design-based and prediction-powered
+  estimation from imperfect labels, anti-essentialist persona checks, and
+  claim-type discipline. A small workflow runtime adds checkpoint, resume, fork,
+  and replay. Optional layers provide a governed Model Context Protocol client,
+  sandboxed tool execution, social-simulation scaffolding, and an HTML run
+  inspector.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -19,11 +29,15 @@ RoxygenNote: 7.3.3
 Depends:
     R (>= 4.2)
 Imports:
-    LLMR (>= 0.8.7),
+    LLMR (>= 0.8.9),
     R6,
     tibble,
     rlang,
     cli,
+    digest,
+    jsonlite,
+    httr2,
+    callr,
     utils
 Suggests:
     testthat (>= 3.0.0),
@@ -32,7 +46,11 @@ Suggests:
     future,
     future.apply,
     dplyr,
-    withr
+    withr,
+    R.utils,
+    jsonvalidate,
+    igraph,
+    htmltools
 Config/testthat/edition: 3
 VignetteBuilder: knitr
 URL: https://github.com/asanaei/LLMRagent, https://asanaei.github.io/LLMRagent/

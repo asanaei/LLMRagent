@@ -42,7 +42,7 @@ returns the transcript.
 }
 \description{
 The moderator puts each question to the group; every participant answers
-(speaking order rotates across questions so nobody anchors every round);
+(speaking order rotates across questions so nobody speaks first every round);
 participants see the discussion so far, as in a real group. The moderator
 closes with a synthesis of themes and disagreements.
 }

@@ -11,6 +11,7 @@ agent(
   tools = list(),
   memory = memory_buffer(),
   budget = LLMRagent::budget(),
+  guardrails = NULL,
   quiet = FALSE
 )
 }
@@ -30,6 +31,10 @@ makes are executed automatically and fed back until it answers.}
 
 \item{budget}{A \code{\link[=budget]{budget()}}; default unlimited.}
 
+\item{guardrails}{Optional \code{\link[=guardrails]{guardrails()}} to check the agent's inputs,
+outputs, and tool calls. A blocked check raises \code{llmragent_guardrail_block}
+and is recorded as an event; default \code{NULL} means no guardrails.}
+
 \item{quiet}{If TRUE, \code{chat()} does not echo replies to the console.}
 }
 \value{
@@ -38,7 +43,7 @@ An \link{Agent} (R6) object.
 \description{
 An agent is a persona plus a model: it remembers its conversation (see
 \link{memory}), can call R functions you expose as tools (via
-\code{LLMR::llm_tool()}), and stops cold when its \code{\link[=budget]{budget()}} runs out. Use
+\code{LLMR::llm_tool()}), and refuses further calls when its \code{\link[=budget]{budget()}} runs out. Use
 \code{agent$chat()} for a stateful conversation, \code{agent$ask_structured()} for
 schema-shaped answers, and pass agents to \code{\link[=conversation]{conversation()}}, \code{\link[=debate]{debate()}},
 \code{\link[=focus_group]{focus_group()}}, \code{\link[=interview]{interview()}}, or \code{\link[=deliberate]{deliberate()}} for multi-agent work.
@@ -48,7 +53,7 @@ Two design decisions worth knowing:
 \itemize{
 \item \strong{Failures are errors, not replies.} If a call fails, the typed LLMR
 condition propagates; nothing is written into memory, so an API hiccup
-cannot masquerade as something the model said.
+is never stored as something the model said.
 \item \strong{Budgets are checked before, not after.} The agent refuses the call
 that would break the limit, raising \code{llmragent_budget_error}.
 }

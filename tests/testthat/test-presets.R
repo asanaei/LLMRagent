@@ -34,9 +34,13 @@ test_that("interview returns a tidy Q/A frame; NONE suppresses the probe", {
   out <- interview(iv, resp, topic = "t",
                    questions = c("First question?", "Second question?"),
                    quiet = TRUE)
-  expect_identical(out$type, c("scripted", "scripted", "probe"))
-  expect_identical(out$question[3], "What did that feel like?")
-  expect_identical(out$answer[3], "probe answer")
+  # interview() now returns a classed object carrying provenance; the Q/A frame
+  # lives in $qa (and as.data.frame() returns it).
+  expect_s3_class(out, "agent_interview")
+  expect_identical(out$qa$type, c("scripted", "scripted", "probe"))
+  expect_identical(out$qa$question[3], "What did that feel like?")
+  expect_identical(out$qa$answer[3], "probe answer")
+  expect_identical(as.data.frame(out)$answer[3], "probe answer")
 })
 
 test_that("deliberation collects discussion and independent votes", {

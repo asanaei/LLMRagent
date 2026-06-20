@@ -6,9 +6,9 @@
 #'
 #' Each agent receives the previous agent's output as its message (the first
 #' receives `input`), transforms it according to its persona, and hands the
-#' result on. The classic use is an assembly line of narrow specialists --
-#' extract, then translate, then critique -- where each stage is easy to
-#' inspect, test, and swap.
+#' result on. A common use is a fixed sequence of narrow specialists:
+#' extract, then translate, then critique. Each stage is easy to inspect,
+#' test, and swap.
 #'
 #' Stages are stateless (`reply()`), so the same agents can serve in several
 #' pipelines, and a pipeline can run many inputs without cross-contamination.
@@ -48,6 +48,10 @@ agent_pipeline <- function(agents, input, quiet = FALSE, ...) {
   for (a in agents) {
     if (!inherits(a, "Agent")) stop("`agents` must be Agent objects.", call. = FALSE)
   }
+  rc <- .run_open("pipeline",
+                  design = list(stage_order = vapply(agents, function(a) a$name, character(1))),
+                  agents = agents)
+  on.exit(for (a in agents) a$bind_run(NULL), add = TRUE)
   current <- as.character(input)[1]
   rows <- vector("list", length(agents))
   for (i in seq_along(agents)) {
@@ -60,8 +64,20 @@ agent_pipeline <- function(agents, input, quiet = FALSE, ...) {
     }
     current <- out
   }
-  structure(list(steps = do.call(rbind, rows), output = current),
+  structure(list(steps = do.call(rbind, rows), output = current,
+                 provenance = .run_close(rc)),
             class = "agent_pipeline_run")
+}
+
+#' @exportS3Method as_agent_run agent_pipeline_run
+as_agent_run.agent_pipeline_run <- function(x, ...) {
+  prov <- x$provenance
+  st <- x$steps
+  utt <- tibble::tibble(
+    run_id = prov$run_id, turn = st$step, speaker = st$agent,
+    role = "speaker", text = st$output, phase = NA_character_,
+    question_id = NA_integer_, call_id = NA_character_, ts = as.POSIXct(NA))
+  .run_from_provenance(prov, utterances = utt, artifacts = list(steps = st))
 }
 
 #' @export

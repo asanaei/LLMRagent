@@ -7,7 +7,7 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r}
+```{r, include=FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE, comment = "#>",
   eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
@@ -18,9 +18,9 @@ Social research has spent a century refining conversation formats: the
 debate elicits the strongest case each side can muster; the focus group
 surfaces how opinions move in company; the interview goes deep on one
 person; the deliberation ends in a decision. LLMRagent ships each as a
-one-call preset. All four share the same anatomy -- agents built with
-`agent()`, a shared attributed transcript, tidy returns -- so what you learn
-on one transfers to the rest.
+one-call preset. All four share a structure: agents built with `agent()`, a
+shared attributed transcript, and tidy returns. What you learn from one
+transfers to the others.
 
 Throughout, one model and one cast:
 
@@ -53,7 +53,7 @@ d$verdict$reasoning
 ## Focus group: opinions in company
 
 `focus_group()` puts each question to every participant; speaking order
-rotates across questions so no one anchors every round, and participants
+rotates across questions so no one speaks first every round, and participants
 see the discussion so far, as in a real group. The moderator closes with a
 synthesis.
 
@@ -75,7 +75,7 @@ fg$summary            # the moderator's synthesis
 fg$transcript         # utterance-level frame for content analysis
 ```
 
-Leave `questions = NULL` and the moderator drafts its own -- useful for
+Leave `questions = NULL` and the moderator drafts its own. This helps when
 piloting an instrument before you spend human-subjects time on it.
 
 ## Interview: depth on one respondent
@@ -137,8 +137,8 @@ scored <- LLMR::llm_mutate(
 table(scored$speaker, scored$stance)
 ```
 
-To turn any of these into an experiment -- vary the personas, the framing,
-the group composition -- wrap the call in a function and hand it to
-`agent_experiment()`; the deliberation vignette walks through a complete
+To turn any of these into an experiment, vary the personas, the framing, or
+the group composition, then wrap the call in a function and hand it to
+`agent_experiment()`. The deliberation vignette walks through a complete
 factorial study. And for a permanent record of every call these formats
 make, switch on `LLMR::llm_log_enable("study.jsonl")` first.

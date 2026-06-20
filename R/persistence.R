@@ -30,10 +30,11 @@ save_agent <- function(x, path) {
   state <- list(
     llmragent_version = as.character(utils::packageVersion("LLMRagent")),
     name = x$name,
-    persona = x$persona,
+    persona = if (!is.null(x$persona_frame())) x$persona_frame() else x$persona,
     config = x$config,
     memory = x$memory$state(),
-    trace = x$trace(),
+    spans = x$internal_spans(),
+    agent_id = x$id(),
     usage = as.list(x$usage()[1, c("calls", "tokens_sent",
                                    "tokens_received", "tool_calls")]),
     budget = x$budget
@@ -66,6 +67,7 @@ load_agent <- function(path, tools = list(), embed_config = NULL) {
   out <- agent(name = state$name, config = state$config,
                persona = state$persona, tools = tools, memory = mem,
                budget = state$budget %||% budget())
-  out$restore_accounting(usage = state$usage, trace = state$trace)
+  out$restore_accounting(usage = state$usage, spans = state$spans,
+                         agent_id = state$agent_id)
   out
 }

@@ -1,0 +1,149 @@
+---
+title: "Governed tools and human review: letting an agent act, safely"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Governed tools and human review: letting an agent act, safely}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
+)
+```
+
+A tool lets an agent act beyond generating text. Often that is the point: you
+want the agent to query a database, call an API, or run a calculation. But the
+same mechanism can delete a row, send a message, or spend money, and an agent
+that decides for itself when to take those actions needs explicit limits. This
+vignette covers three of them: declaring what a tool may do, checking what flows
+in and out, and pausing for a human before an irreversible step.
+
+```{r setup}
+library(LLMRagent)
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.3)
+```
+
+## A governed tool declares its powers
+
+`agent_tool()` wraps an ordinary R function and asks you to state, up front, what
+kind of thing it is. A read is not a write; a call that reaches the network is
+not a call that stays local. Declaring this gives the later checks a policy to
+enforce, and it is recorded in the study manifest so the tool's policy is part of
+the apparatus you archive.
+
+```{r tool}
+lookup_population <- agent_tool(
+  function(city) {
+    pops <- c(Chicago = 2.7, Detroit = 0.6, Austin = 1.0)  # millions
+    pops[[city]] %||% NA_real_
+  },
+  name = "lookup_population",
+  description = "Population of a US city in millions.",
+  parameters = list(city = list(type = "string")),
+  required = "city",
+  side_effects = "read",   # this tool only reads
+  max_calls = 5            # and may run at most five times
+)
+```
+
+The limits are enforced, not advisory. A sixth call is refused and the model is
+told why, rather than executed. A tool that runs too long or returns too much can
+be capped the same way (`timeout_s`, `max_bytes`). Drop the tool into an agent
+exactly as you would any tool:
+
+```{r use-tool}
+demographer <- agent("Demographer", cfg, tools = list(lookup_population),
+                     persona = "Use the lookup tool for any population figure.")
+demographer$chat("Which is larger, Chicago or Austin, and by how much?")
+```
+
+## Guardrails check what flows in and out
+
+A guardrail is a check that runs at a boundary: on the user's input, on the
+model's output, or on a tool's result. It can block (raise an error and stop),
+warn, or simply flag for the record. Every verdict becomes an event in the run,
+so even a flag that does not stop anything leaves a trace.
+
+```{r guardrails}
+no_pii <- guardrail(
+  "no_email_in_output",
+  check = function(payload, context) {
+    if (grepl("[[:alnum:]._]+@[[:alnum:].]+", payload)) "output contains an email address" else TRUE
+  },
+  on_fail = "block",
+  stage = "output"
+)
+
+careful <- agent("Careful", cfg, guardrails = guardrails(no_pii),
+                 persona = "You answer questions about contacting the registrar.")
+
+# a normal answer passes; an answer that leaks an address is blocked
+tryCatch(
+  careful$chat("Give me a fake example email for the registrar."),
+  llmragent_guardrail_block = function(e) "blocked: the output guardrail stopped a leak"
+)
+```
+
+Tool-stage guardrails apply the same check to tool results, which matters
+when a tool reaches an outside service you do not control. A result that looks
+like an injection attempt, or carries content it should not, can be stopped
+before the model ever reads it. The payload a tool guardrail receives is a list
+with the tool's `name`, `arguments`, and `result`.
+
+## Human approval for the irreversible
+
+Some actions should never happen without a person saying yes. Mark such a tool
+`requires_approval = TRUE`. When the model tries to call it, the run does not
+proceed and does not silently skip the call. It raises a typed condition
+carrying a checkpoint: a complete, serializable snapshot of where the agent was.
+
+```{r gate}
+send_email <- agent_tool(
+  function(to, body) paste0("SENT to ", to, ": ", body),
+  name = "send_email",
+  description = "Send an email to a recipient.",
+  parameters = list(to = list(type = "string"), body = list(type = "string")),
+  required = c("to", "body"),
+  side_effects = "external",
+  requires_approval = TRUE
+)
+
+assistant <- agent("Assistant", cfg, tools = list(send_email),
+                   persona = "You help draft and send short emails.")
+
+checkpoint <- tryCatch(
+  assistant$chat("Email j.doe@example.edu to confirm Tuesday's meeting."),
+  llmragent_pending_approval = function(e) e$checkpoint
+)
+checkpoint    # shows the pending tool and its arguments
+```
+
+A reviewer now decides. The checkpoint is an ordinary R object: you can save it
+with `saveRDS()`, hand it to a colleague, and resume tomorrow on another
+machine. The checkpoint lets a review continue across sessions and machines.
+Approve, reject, or edit the arguments, then resume:
+
+```{r approve}
+decided <- approve_tool_call(checkpoint, "approve")
+result  <- resume_run(decided)
+result    # the approved call ran, and the agent continued from where it paused
+```
+
+Rejecting feeds the model a denial and lets it carry on without the action.
+Editing lets you fix the arguments -- correct a recipient, trim a message --
+before the call runs. Either way the decision is recorded as an approval event,
+and because the resumed run keeps the original run id, the archive shows one
+continuous study with a human checkpoint in the middle, not two disconnected
+fragments.
+
+## Putting it together
+
+The three controls combine. A realistic setup declares each tool's powers, guards
+the boundaries against leaks and injections, and gates the few genuinely
+dangerous tools behind a person. None of it is forced on a simple study: an
+agent with no governed tools, no guardrails, and no gates behaves exactly as it
+did before. They earn their place once an agent can affect anything beyond the
+model call.

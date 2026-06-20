@@ -10,11 +10,11 @@ LLMRagent builds on LLMR's provider layer to provide:
 }
 \details{
 \itemize{
-\item \code{\link[=agent]{agent()}}: an agent with a persona, an LLMR model config, native tool
-calling, pluggable memory, and hard budgets; replies can stream live
+\item \code{\link[=agent]{agent()}}: an agent with a persona and an LLMR model config. It calls
+native tools, keeps memory, holds to a budget, and can stream replies
 with \code{chat(stream = TRUE)}.
 \item \code{\link[=agent_as_tool]{agent_as_tool()}}: expose an agent as a tool, so other agents can
-delegate to it -- the primitive behind supervisor/specialist
+delegate to it; this is the primitive behind supervisor/specialist
 hierarchies.
 \item \code{\link[=agent_pipeline]{agent_pipeline()}}: run text through a fixed chain of specialists,
 keeping every intermediate product.
@@ -24,7 +24,7 @@ transcript, with turn-taking policies and stop rules; presets
 \item \code{\link[=agent_experiment]{agent_experiment()}}: factorial designs over conditions and replications,
 run sequentially or in parallel, returning one tidy results frame.
 \item \code{\link[=think_harder]{think_harder()}}: an orchestrator that uses one strong model to plan and
-synthesize while many cheap models do the heavy lifting.
+synthesize while many cheap models draft answers in parallel.
 }
 
 Every run yields a tidy transcript and a trace of calls, tokens, and

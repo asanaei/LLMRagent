@@ -4,11 +4,11 @@
 #'
 #' LLMRagent builds on LLMR's provider layer to provide:
 #'
-#' - [agent()]: an agent with a persona, an LLMR model config, native tool
-#'   calling, pluggable memory, and hard budgets; replies can stream live
+#' - [agent()]: an agent with a persona and an LLMR model config. It calls
+#'   native tools, keeps memory, holds to a budget, and can stream replies
 #'   with `chat(stream = TRUE)`.
 #' - [agent_as_tool()]: expose an agent as a tool, so other agents can
-#'   delegate to it -- the primitive behind supervisor/specialist
+#'   delegate to it; this is the primitive behind supervisor/specialist
 #'   hierarchies.
 #' - [agent_pipeline()]: run text through a fixed chain of specialists,
 #'   keeping every intermediate product.
@@ -18,7 +18,7 @@
 #' - [agent_experiment()]: factorial designs over conditions and replications,
 #'   run sequentially or in parallel, returning one tidy results frame.
 #' - [think_harder()]: an orchestrator that uses one strong model to plan and
-#'   synthesize while many cheap models do the heavy lifting.
+#'   synthesize while many cheap models draft answers in parallel.
 #'
 #' Every run yields a tidy transcript and a trace of calls, tokens, and
 #' timings. Combine with `LLMR::llm_log_enable()` for a complete per-call
@@ -29,7 +29,7 @@
 #' @importFrom R6 R6Class
 "_PACKAGE"
 
-utils::globalVariables(c("speaker", "turn"))
+utils::globalVariables(c("speaker", "turn", "text"))
 
 # Internal: render a conversation transcript as readable dialogue. Retained for
 # third-person / analysis surfaces (moderator next-speaker choice, judge

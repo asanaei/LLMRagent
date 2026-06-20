@@ -27,7 +27,7 @@ An object of class \code{agent_budget}.
 Budgets are hard limits, checked before every model call. When a limit
 would be exceeded, the agent raises a condition of class
 \code{llmragent_budget_error} instead of calling the API, so a runaway loop
-cannot quietly spend money. Catch it with \code{tryCatch()} if you want
+cannot spend without leaving a record. Catch it with \code{tryCatch()} if you want
 graceful degradation.
 }
 \examples{

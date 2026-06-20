@@ -39,6 +39,14 @@ debate <- function(pro, con, topic, rounds = 2L, judge = NULL,
   old_mm <- getOption("LLMRagent.msg_mode")
   options(LLMRagent.msg_mode = .msg_mode(msg_mode))
   on.exit(options(LLMRagent.msg_mode = old_mm), add = TRUE)
+  # Open a run so every participant's spans are stamped with one run id; the
+  # judge (if any) participates too. Closed before returning.
+  run_agents <- if (inherits(judge, "Agent")) list(pro, con, judge) else list(pro, con)
+  rc <- .run_open("debate",
+                  design = list(motion = topic, rounds = rounds,
+                                judged = inherits(judge, "Agent")),
+                  agents = run_agents)
+  on.exit(for (a in run_agents) a$bind_run(NULL), add = TRUE)
   phases <- c("opening",
               rep("rebuttal", max(0L, as.integer(rounds)) * 2L),
               "closing")
@@ -95,8 +103,23 @@ debate <- function(pro, con, topic, rounds = 2L, judge = NULL,
         required = list("winner", "confidence", "reasoning")
       ), ...)
   }
-  structure(list(transcript = transcript, verdict = verdict, motion = topic),
+  structure(list(transcript = transcript, verdict = verdict, motion = topic,
+                 provenance = .run_close(rc)),
             class = "agent_debate")
+}
+
+#' @exportS3Method as_agent_run agent_debate
+as_agent_run.agent_debate <- function(x, ...) {
+  prov <- x$provenance
+  utt <- .utterances_from_dialogue(x$transcript, prov$run_id)
+  arts <- list()
+  if (!is.null(x$verdict)) {
+    arts$verdict <- tibble::tibble(
+      winner = as.character(x$verdict$winner %||% NA_character_),
+      confidence = as.numeric(x$verdict$confidence %||% NA_real_),
+      reasoning = as.character(x$verdict$reasoning %||% NA_character_))
+  }
+  .run_from_provenance(prov, utterances = utt, artifacts = arts)
 }
 
 #' @export
@@ -118,7 +141,7 @@ as.data.frame.agent_debate <- function(x, ...) as.data.frame(x$transcript, ...)
 #' A moderated focus group
 #'
 #' The moderator puts each question to the group; every participant answers
-#' (speaking order rotates across questions so nobody anchors every round);
+#' (speaking order rotates across questions so nobody speaks first every round);
 #' participants see the discussion so far, as in a real group. The moderator
 #' closes with a synthesis of themes and disagreements.
 #'
@@ -165,6 +188,12 @@ focus_group <- function(moderator, participants, topic,
     if (!inherits(p, "Agent")) stop("`participants` must be Agent objects.", call. = FALSE)
   }
   nms <- vapply(participants, function(a) a$name, character(1))
+
+  run_agents <- c(list(moderator), participants)
+  rc <- .run_open("focus_group",
+                  design = list(topic = topic, n_questions = n_questions),
+                  agents = run_agents)
+  on.exit(for (a in run_agents) a$bind_run(NULL), add = TRUE)
 
   if (is.null(questions)) {
     drafted <- moderator$ask_structured(
@@ -219,8 +248,19 @@ focus_group <- function(moderator, participants, topic,
   if (!quiet) cli::cli_text("{.strong {moderator$name} (summary)}: {summary}")
 
   structure(list(transcript = transcript, questions = questions,
-                 summary = summary, topic = topic),
+                 summary = summary, topic = topic,
+                 provenance = .run_close(rc)),
             class = "agent_focus_group")
+}
+
+#' @exportS3Method as_agent_run agent_focus_group
+as_agent_run.agent_focus_group <- function(x, ...) {
+  prov <- x$provenance
+  utt <- .utterances_from_dialogue(x$transcript, prov$run_id)
+  arts <- list(
+    questions = tibble::tibble(question = as.character(x$questions)),
+    summary = tibble::tibble(summary = as.character(x$summary %||% NA_character_)))
+  .run_from_provenance(prov, utterances = utt, artifacts = arts)
 }
 
 #' @export
@@ -277,6 +317,13 @@ interview <- function(interviewer, respondent, topic,
   old_mm <- getOption("LLMRagent.msg_mode")
   options(LLMRagent.msg_mode = .msg_mode(msg_mode))
   on.exit(options(LLMRagent.msg_mode = old_mm), add = TRUE)
+
+  run_agents <- list(interviewer, respondent)
+  rc <- .run_open("interview",
+                  design = list(topic = topic, n_questions = n_questions,
+                                follow_up = follow_up),
+                  agents = run_agents)
+  on.exit(for (a in run_agents) a$bind_run(NULL), add = TRUE)
 
   if (is.null(questions)) {
     drafted <- interviewer$ask_structured(
@@ -335,16 +382,55 @@ interview <- function(interviewer, respondent, topic,
       }
     }
   }
-  do.call(rbind, rows)
+  qa <- do.call(rbind, rows)
+  structure(list(qa = qa, topic = topic, provenance = .run_close(rc)),
+            class = "agent_interview")
+}
+
+#' @export
+print.agent_interview <- function(x, ...) {
+  cat(sprintf("<agent_interview | %d Q/A row(s) | topic: %s>\n",
+              nrow(x$qa), x$topic %||% "?"))
+  print(x$qa)
+  invisible(x)
+}
+
+#' @export
+as.data.frame.agent_interview <- function(x, ...) as.data.frame(x$qa, ...)
+
+#' @exportS3Method as_agent_run agent_interview
+as_agent_run.agent_interview <- function(x, ...) {
+  prov <- x$provenance
+  qa <- x$qa
+  utt <- NULL
+  if (!is.null(qa) && nrow(qa)) {
+    rows <- list()
+    turn <- 0L
+    for (i in seq_len(nrow(qa))) {
+      turn <- turn + 1L
+      rows[[length(rows) + 1L]] <- tibble::tibble(
+        run_id = prov$run_id, turn = turn, speaker = "interviewer",
+        role = "speaker", text = as.character(qa$question[i]),
+        phase = as.character(qa$type[i]), question_id = as.integer(qa$order[i]),
+        call_id = NA_character_, ts = as.POSIXct(NA))
+      turn <- turn + 1L
+      rows[[length(rows) + 1L]] <- tibble::tibble(
+        run_id = prov$run_id, turn = turn, speaker = "respondent",
+        role = "speaker", text = as.character(qa$answer[i]),
+        phase = as.character(qa$type[i]), question_id = as.integer(qa$order[i]),
+        call_id = NA_character_, ts = as.POSIXct(NA))
+    }
+    utt <- do.call(rbind, rows)
+  }
+  .run_from_provenance(prov, utterances = utt)
 }
 
 #' Group deliberation with a recorded vote
 #'
 #' Agents discuss a proposal for a fixed number of rounds (everyone speaks
 #' each round, seeing the discussion so far), then vote independently and
-#' privately through structured output. Comparing votes cast after
-#' deliberation with positions voiced during it is exactly the kind of
-#' analysis the tidy return enables.
+#' privately through structured output. The tidy return supports comparing
+#' votes cast after deliberation with positions voiced during it.
 #'
 #' @param agents A list of [Agent]s.
 #' @param proposal The proposal under deliberation (character scalar).
@@ -383,6 +469,12 @@ deliberate <- function(agents, proposal, rounds = 2L,
     if (!inherits(a, "Agent")) stop("`agents` must be Agent objects.", call. = FALSE)
   }
   nms <- vapply(agents, function(a) a$name, character(1))
+
+  rc <- .run_open("deliberation",
+                  design = list(proposal = proposal, rounds = rounds,
+                                options = options),
+                  agents = agents)
+  on.exit(for (a in agents) a$bind_run(NULL), add = TRUE)
 
   transcript <- tibble::tibble(turn = integer(0), round = integer(0),
                                speaker = character(0), text = character(0))
@@ -441,8 +533,17 @@ deliberate <- function(agents, proposal, rounds = 2L,
     cli::cli_text("{.strong Vote}: {paste(sprintf('%s=%d', names(tally), as.integer(tally)), collapse = ', ')}")
   }
   structure(list(transcript = transcript, votes = votes, tally = tally,
-                 decision = decision, proposal = proposal),
+                 decision = decision, proposal = proposal,
+                 provenance = .run_close(rc)),
             class = "agent_deliberation")
+}
+
+#' @exportS3Method as_agent_run agent_deliberation
+as_agent_run.agent_deliberation <- function(x, ...) {
+  prov <- x$provenance
+  utt <- .utterances_from_dialogue(x$transcript, prov$run_id)
+  arts <- list(votes = x$votes, tally = as.data.frame(x$tally))
+  .run_from_provenance(prov, utterances = utt, artifacts = arts)
 }
 
 #' @export

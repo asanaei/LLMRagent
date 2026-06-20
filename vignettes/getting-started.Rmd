@@ -7,7 +7,7 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r}
+```{r, include=FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE, comment = "#>",
   eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
@@ -16,7 +16,7 @@ knitr::opts_chunk$set(
 
 An agent is three things: a model (an `LLMR::llm_config()`), a persona (a
 system prompt), and machinery around them: memory, tools, and budgets. This
-vignette builds one of each. Examples use the open-weight `gpt-oss-20b` on
+vignette builds one of each component. Examples use the open-weight `gpt-oss-20b` on
 Groq; set `GROQ_API_KEY` and `LLMRAGENT_RUN_VIGNETTES=true` to run them.
 
 ```{r setup}
@@ -72,7 +72,7 @@ analyst$trace()   # every model call and tool call, with tokens and timing
 ## Budgets: spend ceilings the agent cannot cross
 
 Budgets are checked before each call; the call that would exceed a limit is
-refused with a typed error, so a loop cannot quietly burn money.
+refused with a typed error, so a loop cannot spend without you seeing it.
 
 ```{r budgets}
 frugal <- agent("Frugal", cfg, budget = budget(max_calls = 2))
@@ -116,7 +116,7 @@ lead$chat("Crime fell while policing budgets rose, across many cities.
 stat$usage()   # the consultation showed up here
 ```
 
-## Pipelines: an assembly line of specialists
+## Pipelines: a fixed sequence of specialists
 
 When the routing is fixed rather than model-chosen, chain agents with
 `agent_pipeline()`: each stage transforms the previous stage's output, and

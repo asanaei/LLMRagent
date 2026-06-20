@@ -95,5 +95,42 @@ agent_experiment <- function(design, run_fn, reps = 1L,
   err <- vapply(results, function(r) r$error %||% NA_character_, character(1))
   cells$error    <- err
   cells$duration <- vapply(results, `[[`, 0, "duration")
-  tibble::as_tibble(cells)
+  out <- tibble::as_tibble(cells)
+  class(out) <- unique(c("agent_experiment", class(out)))
+  out
+}
+
+#' @exportS3Method as_agent_run agent_experiment
+as_agent_run.agent_experiment <- function(x, ...) {
+  # Recurse into each cell's result: when a cell returned a classed result that
+  # carries provenance (a deliberate(), a debate(), a chat agent, ...), fold its
+  # events in, tagged with the design row. Cells whose result is not convertible
+  # are skipped (their work was not on the agent provenance path).
+  design_cols <- setdiff(names(x), c("result", "error", "duration"))
+  rid <- .llmragent_id("run")
+  spans <- list()
+  participants <- list()
+  utts <- list()
+  for (i in seq_len(nrow(x))) {
+    res <- x$result[[i]]
+    if (is.null(res)) next
+    sub <- tryCatch(as_agent_run(res), error = function(e) NULL)
+    if (is.null(sub)) next
+    cell_tag <- paste(vapply(design_cols, function(cn)
+      paste0(cn, "=", as.character(x[[cn]][i])), character(1)), collapse = "; ")
+    for (s in sub$spans) { s$run_id <- rid; s$note <- paste0("[", cell_tag, "] ", s$note %||% ""); spans[[length(spans) + 1L]] <- s }
+    if (nrow(sub$participants)) participants[[length(participants) + 1L]] <- sub$participants
+    su <- tryCatch(as_tibble(sub, "utterance"), error = function(e) NULL)
+    if (!is.null(su) && nrow(su)) { su$run_id <- rid; su$call_id <- cell_tag; utts[[length(utts) + 1L]] <- su }
+  }
+  prov <- list(
+    run_id = rid, kind = "experiment",
+    design = list(conditions = design_cols, n_cells = nrow(x)),
+    spans = spans,
+    participants = if (length(participants)) tibble::as_tibble(unique(as.data.frame(do.call(rbind, participants), stringsAsFactors = FALSE))) else .empty_participants(),
+    created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
+    llmr_log = .llmragent_active_log(), agents = list())
+  .run_from_provenance(prov,
+    utterances = if (length(utts)) do.call(rbind, utts) else NULL,
+    artifacts = list(design = as.data.frame(x[, design_cols, drop = FALSE])))
 }
