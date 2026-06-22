@@ -127,11 +127,9 @@ robustness audits, and replication archives built from the audit log.
 to panels of model personas for design-stage work, and marks its output
 uncalibrated until it is compared against a human benchmark.
 [FocusGroup](https://asanaei.github.io/FocusGroup/) is the dedicated package for
-moderated discussion. LLMRagent's own `focus_group()` preset gives you a
-moderated session in a few lines and returns a transcript with the moderator's
-synthesis; reach for the FocusGroup package when the discussion itself is the
-object of study, where who speaks next is governed by modeled desire to talk
-rather than a fixed rotation, and the turn-level dynamics are what you want to
-measure. The [ecosystem page](https://asanaei.github.io/LLMR-ecosystem/)
-introduces the whole family.
+moderated discussion. LLMRagent's `focus_group()` preset runs a session in a few
+lines; use the FocusGroup package for a richer implementation, with desire-based
+turn-taking and the turn-level dynamics studied in their own right. The
+[ecosystem page](https://asanaei.github.io/LLMR-ecosystem/) introduces the whole
+family.
 
