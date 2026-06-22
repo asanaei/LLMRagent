@@ -8,14 +8,14 @@
 <!-- badges: end -->
 
 Language-model **agents for R**, built on
-[LLMR](https://github.com/asanaei/LLMR). An agent here is a model and a persona,
-with memory, native tool calling, and a budget it cannot overspend. Agents
-consult one another, hold multi-agent conversations over a shared transcript,
-and run by the hundred in a factorial experiment. Every run keeps its own
-provenance and seals into a replication archive. Governance, validity, and
-workflow tooling wait in reserve for the studies that need them. The package is
-written for social scientists running agent-based studies, and for anyone in R
-who wants a capable agent in five lines.
+[LLMR](https://github.com/asanaei/LLMR). An agent here is a model and a persona
+that carries memory, calls tools natively, and works under a budget it cannot
+overspend. Agents consult one another and hold conversations over a shared
+transcript. A factorial design runs hundreds of them at once. Each run records
+its own provenance and seals into a replication archive, while the governance
+and validity tooling stays in reserve for studies that need it. The package
+suits social scientists running agent-based studies, and anyone in R who wants
+a capable agent in five lines.
 
 ```r
 # install.packages("remotes")
@@ -110,11 +110,11 @@ All articles and reference: <https://asanaei.github.io/LLMRagent/>
 
 ## Relation to LLMR
 
-[LLMR](https://asanaei.github.io/LLMR/) supplies the provider layer: 14+
-providers, retries, structured output, tool execution, streaming, parallel
-calls, audit logging, batch APIs. LLMRagent adds the agent abstractions on
-top. Anything configured in LLMR (provider, model, sampling, caching,
-logging) works unchanged here.
+[LLMR](https://asanaei.github.io/LLMR/) supplies the provider layer for more
+than fourteen providers: retries and structured output, native tool execution,
+streaming and parallel calls, audit logging, and the batch APIs. LLMRagent adds
+the agent abstractions on top, so anything configured in LLMR (provider, model,
+sampling, caching, logging) works unchanged here.
 
 ## The LLMR ecosystem
 
@@ -126,8 +126,12 @@ robustness audits, and replication archives built from the audit log.
 [LLMRpanel](https://asanaei.github.io/LLMRpanel/) administers survey instruments
 to panels of model personas for design-stage work, and marks its output
 uncalibrated until it is compared against a human benchmark.
-[FocusGroup](https://asanaei.github.io/FocusGroup/) simulates moderated
-discussion for piloting instruments and studying turn-level dynamics. The
-[ecosystem page](https://asanaei.github.io/LLMR-ecosystem/) introduces the
-whole family.
+[FocusGroup](https://asanaei.github.io/FocusGroup/) is the dedicated package for
+moderated discussion. LLMRagent's own `focus_group()` preset gives you a
+moderated session in a few lines and returns a transcript with the moderator's
+synthesis; reach for the FocusGroup package when the discussion itself is the
+object of study, where who speaks next is governed by modeled desire to talk
+rather than a fixed rotation, and the turn-level dynamics are what you want to
+measure. The [ecosystem page](https://asanaei.github.io/LLMR-ecosystem/)
+introduces the whole family.
 
