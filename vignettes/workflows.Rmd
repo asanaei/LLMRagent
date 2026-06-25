@@ -124,6 +124,6 @@ If `deliberate()` or `agent_pipeline()` already does what you need, use them; th
 workflow runtime is not a replacement and `workflow_from_pipeline()` exists only
 to show that the engine can express them. Reach for `agent_workflow()` when you
 need a branch, a loop, a human gate, or durability across a long run. The added
-setup buys a procedure that checkpoints, resumes, forks, and replays:
+setup adds checkpointing, resumption, forking, and replay verification:
 a pipeline you can leave and return to, and one a reader can verify ran the way
 you say it did.

@@ -14,8 +14,8 @@ overspend. Agents consult one another and hold conversations over a shared
 transcript. A factorial design runs hundreds of them at once. Each run records
 its own provenance and seals into a replication archive, while the governance
 and validity tooling stays in reserve for studies that need it. The package
-suits social scientists running agent-based studies, and anyone in R who wants
-a capable agent in five lines.
+suits social scientists running agent-based studies, and anyone in R who needs
+an agent with memory, tools, and a budget it keeps to.
 
 ```r
 # install.packages("remotes")
@@ -84,7 +84,7 @@ These primitives combine. As one worked example, `think_harder()` puts a strong
 model and a pool of cheap ones through a plan, work, and synthesize loop. It is
 built from the pieces above, not a separate idea.
 
-## A taste of multi-agent work
+## A small multi-agent example
 
 ```r
 panel <- list(

@@ -28,7 +28,7 @@ library(LLMRagent)
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.7)
 ```
 
-## Robustness: does the result survive a nudge?
+## Robustness: does the result hold under a small perturbation?
 
 Suppose you ask a model to rate how risky an activity is. A defensible result is
 one that barely moves when you raise the temperature, reorder the options, or

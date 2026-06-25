@@ -1,8 +1,8 @@
 ---
-title: "The super-brain pattern: one strong model, many cheap workers"
+title: "Strong planner, cheap workers: one strong model coordinating many cheap ones"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{The super-brain pattern: one strong model, many cheap workers}
+  %\VignetteIndexEntry{Strong planner, cheap workers: one strong model coordinating many cheap ones}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -15,8 +15,8 @@ knitr::opts_chunk$set(
 ```
 
 Strong models cost the most on the task where cheap models are weakest: broad
-exploration that then has to be drawn together. Cheap models produce many
-independent drafts but synthesize them poorly. `think_harder()` uses this
+exploration that then has to be synthesized. Cheap models produce many
+independent drafts but combine them poorly. `think_harder()` uses this
 division of labor:
 
 1. **Plan.** The strong model decomposes the problem into genuinely different
