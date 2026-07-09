@@ -42,8 +42,9 @@
 #'   the same `agent_tool()` object is reused across agents or experiment cells;
 #'   build a fresh tool per independent cell (as you would a fresh agent) when
 #'   each cell should get its own budget.
-#' @param max_bytes Maximum result size; a larger result is truncated and
-#'   flagged.
+#' @param max_bytes Maximum result size in bytes (as measured by
+#'   `nchar(type = "bytes")`); a larger result is truncated at a character
+#'   boundary within the cap and flagged.
 #' @return An `llmr_tool` carrying a `"governance"` attribute.
 #' @seealso [LLMR::llm_tool()], [hash_tool_spec()], [guardrail()], [human_gate()]
 #' @examples
@@ -88,8 +89,15 @@ agent_tool <- function(fn, name, description, parameters = NULL, required = NULL
       tryCatch(as.character(jsonlite::toJSON(res, auto_unbox = TRUE, null = "null")),
                error = function(e) paste(utils::capture.output(print(res)), collapse = "\n"))
     if (is.finite(max_bytes) && nchar(out, type = "bytes") > max_bytes) {
-      out <- paste0(substr(out, 1L, max_bytes),
-                    sprintf(" ...[truncated to %s bytes]", format(max_bytes)))
+      # The cap is in BYTES; substr() counts characters, so a multibyte result
+      # is shrunk proportionally until the kept text fits within the byte cap
+      # (converging in a few steps, always on a character boundary).
+      keep <- substr(out, 1L, max_bytes)
+      while (nchar(keep, type = "bytes") > max_bytes) {
+        keep <- substr(keep, 1L,
+                       floor(nchar(keep) * max_bytes / nchar(keep, type = "bytes")))
+      }
+      out <- paste0(keep, sprintf(" ...[truncated to %s bytes]", format(max_bytes)))
     }
     out
   }
