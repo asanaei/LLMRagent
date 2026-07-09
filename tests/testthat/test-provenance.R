@@ -128,6 +128,99 @@ test_that("diagnostics() numbers match LLMR::llm_usage on the call level", {
   expect_identical(diag$n_ok, u$n_ok)
 })
 
+test_that("archived calls keep the request-hash join when the config has params", {
+  # request_hash is keyed on the generation parameters; the archived request
+  # body must carry them, or a reader recomputes a different hash.
+  cfg <- LLMR::llm_config("groq", "fake-model", temperature = 0.3, max_tokens = 200)
+  a <- Agent$new("Hp", cfg, caller = scripted_caller(list("hi")), quiet = TRUE)
+  a$chat("q")
+  dir <- withr::local_tempdir()
+  archive_agent_study(a, dir)
+  parsed <- LLMR::llm_log_read(file.path(dir, "calls.jsonl"))
+  run_calls <- tibble::as_tibble(as_agent_run(a), level = "call")
+  expect_identical(sort(parsed$manifest$request_hash),
+                   sort(run_calls$request_hash))
+  # and all three agree with the config-side hash LLMR computes
+  expect_identical(
+    parsed$manifest$request_hash[1],
+    LLMR::llm_request_hash(cfg, list(list(role = "user", content = "q"))))
+})
+
+test_that("an archive is honest when the live log has none of the run's calls", {
+  # a "live log" whose records belong to some other run
+  other <- fake_agent("Other", list("unrelated"))
+  other$chat("something else entirely")
+  dir0 <- withr::local_tempdir()
+  archive_agent_study(other, dir0)
+
+  a <- fake_agent("A", list("mine"))
+  a$chat("my question")
+  r <- as_agent_run(a)
+  r$llmr_log <- file.path(dir0, "calls.jsonl")   # points at the foreign log
+  dir <- withr::local_tempdir()
+  expect_warning(arc <- archive_agent_study(r, dir), "no records matching")
+  expect_identical(arc$calls_source, "live_llmr_log_empty")
+  expect_false(arc$llm_log_compatible)
+  expect_true(arc$n_calls > 0L)                  # the run did make calls
+  lines <- readLines(file.path(dir, "calls.jsonl"), warn = FALSE)
+  expect_identical(length(lines[nzchar(lines)]), 0L)
+})
+
+test_that("privacy levers apply to a copied live log", {
+  a <- fake_agent("A", list("a very private reply"))
+  a$chat("a very private question")
+  run_hash <- tibble::as_tibble(as_agent_run(a), level = "call")$request_hash[1]
+
+  # Build a stand-in live log from the spans-derived audit record, shaped like
+  # a genuine LLMR log line (no request_hash field: the reader recomputes it).
+  dir0 <- withr::local_tempdir()
+  archive_agent_study(a, dir0)
+  rec <- jsonlite::fromJSON(readLines(file.path(dir0, "calls.jsonl"))[1],
+                            simplifyVector = FALSE)
+  rec$request_hash <- NULL
+  live_log <- withr::local_tempfile(fileext = ".jsonl")
+  writeLines(as.character(jsonlite::toJSON(rec, auto_unbox = TRUE,
+                                           null = "null", na = "null")), live_log)
+
+  # include_messages = FALSE strips the body and reply but keeps the hash join
+  r <- as_agent_run(a); r$llmr_log <- live_log
+  dir1 <- withr::local_tempdir()
+  arc1 <- archive_agent_study(r, dir1, include_messages = FALSE)
+  expect_identical(arc1$calls_source, "live_llmr_log")
+  out1 <- jsonlite::fromJSON(readLines(file.path(dir1, "calls.jsonl"))[1],
+                             simplifyVector = FALSE)
+  expect_null(out1[["request"]])
+  expect_null(out1$text)
+  expect_identical(out1$request_hash, run_hash)  # identity survives omission
+  expect_false(any(grepl("very private",
+                         readLines(file.path(dir1, "calls.jsonl")))))
+
+  # redact scrubs the reply text of the copied records
+  r2 <- as_agent_run(a); r2$llmr_log <- live_log
+  dir2 <- withr::local_tempdir()
+  archive_agent_study(r2, dir2, redact = "private")
+  out2 <- jsonlite::fromJSON(readLines(file.path(dir2, "calls.jsonl"))[1],
+                             simplifyVector = FALSE)
+  expect_match(out2$text, "REDACTED")
+  # the request body is identity and stays verbatim; the reader still joins
+  parsed2 <- LLMR::llm_log_read(file.path(dir2, "calls.jsonl"))
+  expect_identical(parsed2$manifest$request_hash[1], run_hash)
+})
+
+test_that("diagnostics() and report() accept a bare Agent, as documented", {
+  a <- fake_agent("Bare", list("hi"))
+  a$chat("q")
+  diag <- diagnostics(a)                       # the documented call shape
+  expect_s3_class(diag, "tbl_df")
+  expect_identical(diag$n_calls, 1L)
+  # same numbers either way (run_id is minted per view, so compare the rest)
+  keep <- setdiff(names(diag), "run_id")
+  expect_identical(diag[keep], diagnostics(as_agent_run(a))[keep])
+  rep <- report(a, task = "to answer a question")
+  expect_s3_class(rep, "agent_report")
+  expect_true(any(grepl("Bare", unclass(rep))))
+})
+
 test_that("report() drafts methods prose and warns when uncalibrated", {
   a <- fake_agent("R", list("hi"))
   a$chat("q")
