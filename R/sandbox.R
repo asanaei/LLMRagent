@@ -34,15 +34,22 @@
 #' **What the default executor actually guarantees.** The default child-process
 #' executor runs the user function with its working directory set to a fresh
 #' scratch directory, then snapshots that directory before and after the call to
-#' hash every file written *under it*. Relative writes therefore land in the
-#' scratch directory and are hashed and checked against `allow_paths`. The
-#' default executor does **not** establish a hard filesystem boundary: an
-#' absolute-path write outside the scratch directory (e.g. to `/tmp/out` or
-#' `$HOME/out`) happens in the same operating-system namespace as the parent and
-#' is *not* intercepted, so `llmragent_sandbox_violation` cannot fire for a write
-#' the executor never sees. The guarantee is therefore "confine and audit writes
-#' *within* the scratch working directory", not "block absolute-path writes". To
-#' enforce a real boundary against arbitrary absolute paths, supply a
+#' hash every file written *under it*. Relative writes that stay under the
+#' working directory therefore land in the scratch directory and are hashed and
+#' checked against `allow_paths`. The default executor does **not** establish a
+#' hard filesystem boundary: a write that leaves the scratch directory -- an
+#' absolute path (e.g. `/tmp/out`, `$HOME/out`) or an upward-traversing relative
+#' path (e.g. `../out`) -- happens in the same operating-system namespace as the
+#' parent and is *not* intercepted or snapshotted, so
+#' `llmragent_sandbox_violation` cannot fire for a write the executor never
+#' sees. The guarantee is therefore "audit and check the writes the executor
+#' *reports* (with the default executor: writes remaining under the scratch
+#' working directory)", not "block writes elsewhere". As a best-effort flag,
+#' any *reported* write, and any `allow_paths` entry, that resolves outside the
+#' scratch working directory is recorded in the result's `sandbox` attribute
+#' (field `outside_workdir`), so a call that sanctioned or performed an
+#' out-of-scratch write is visible in the provenance rather than silent. To
+#' enforce a real boundary against arbitrary paths, supply a
 #' `mode = "container"` executor (or an OS-level sandbox) that runs the function
 #' in a confined namespace and reports the files it wrote; the `allow_paths`
 #' check then applies to whatever that executor reports.
@@ -64,10 +71,11 @@
 #'   object (as in [LLMR::llm_tool()]).
 #' @param required Character vector of required argument names.
 #' @param mode The confinement regime. `"read_only"`: the child runs with its
-#'   working directory set to a scratch directory; relative writes land there and
+#'   working directory set to a scratch directory; relative writes that stay
+#'   under it land there and
 #'   are hashed and checked against `allow_paths`, and any *reported* write
 #'   outside `allow_paths` is a violation (the default executor cannot intercept
-#'   absolute-path writes; see Details). `"tempdir"`: the scratch directory is
+#'   writes that leave the scratch directory; see Details). `"tempdir"`: the scratch directory is
 #'   the sanctioned writable location and is always permitted; reported writes
 #'   elsewhere are violations. `"container"`: confinement is delegated entirely to
 #'   a supplied `executor`, which is the way to obtain a hard filesystem boundary.
@@ -80,8 +88,9 @@
 #'   written file is a violation. The scratch working directory is always
 #'   permitted (in `"tempdir"` mode). The check applies only to files the
 #'   executor reports; with the default executor that means files written under
-#'   the scratch directory, since absolute-path writes elsewhere are not seen
-#'   (see Details). Default `NULL` (only the scratch directory is allowed).
+#'   the scratch directory, since writes that leave it (absolute or
+#'   `../`-traversing paths) are not seen (see Details). Default `NULL` (only
+#'   the scratch directory is allowed).
 #' @param env How much of the ambient environment the child sees. Recorded for
 #'   provenance and passed to the executor; the default executor treats
 #'   `"minimal"` as a hint and does not inherit the parent's global objects.
@@ -93,7 +102,9 @@
 #' @return An `llmr_tool` carrying a `"governance"` attribute whose `sandbox`
 #'   element records the mode and `allow_paths`. Each call returns the tool's
 #'   result string with a `"sandbox"` attribute recording the mode, duration,
-#'   byte count, input and output file hashes, and status.
+#'   byte count, input and output file hashes, status, and `outside_workdir`
+#'   (reported writes and `allow_paths` entries resolving outside the scratch
+#'   working directory; see Details).
 #' @seealso [agent_tool()], [LLMR::llm_tool()], [agent()]
 #' @examples
 #' \dontrun{
@@ -208,6 +219,13 @@ sandbox_tool <- function(fn, name = NULL, description = NULL,
         tool = tool_name, paths = bad, allow_paths = allow_paths)
     }
 
+    # Best-effort escape flag: any reported write, and any allow_paths entry,
+    # that resolves outside the scratch workdir is recorded in the provenance.
+    # This is a flag, not a fence -- the default executor cannot see writes
+    # that left the workdir -- but a call that sanctioned or performed an
+    # out-of-scratch write must not read as contained.
+    outside <- .sandbox_outside_workdir(c(written, allow_paths), workdir)
+
     # Stringify the result, then enforce the byte cap on it (and on stdout).
     out <- .sandbox_stringify(res$result, res$stdout, status, res$error,
                               tool_name, timeout_s)
@@ -221,7 +239,8 @@ sandbox_tool <- function(fn, name = NULL, description = NULL,
 
     attr(out, "sandbox") <- list(
       mode = mode, duration = duration, bytes = bytes,
-      in_hashes = in_hashes, out_hashes = out_hashes, status = status)
+      in_hashes = in_hashes, out_hashes = out_hashes, status = status,
+      outside_workdir = outside)
     out
   }
 
@@ -419,6 +438,20 @@ sandbox_tool <- function(fn, name = NULL, description = NULL,
     }
   }
   out
+}
+
+# Which of these paths resolve OUTSIDE the scratch workdir? Used for the
+# best-effort provenance flag: a reported write, or a sanctioned allow_paths
+# entry, outside the workdir means the call was not contained to the scratch
+# directory, and the result must say so rather than staying silent.
+#' @keywords internal
+#' @noRd
+.sandbox_outside_workdir <- function(paths, workdir) {
+  paths <- unique(paths[!is.na(paths) & nzchar(paths)])
+  if (!length(paths) || is.null(workdir) || !nzchar(workdir)) return(character(0))
+  wd <- .sandbox_realize(workdir)
+  norm <- .sandbox_norm(paths)
+  paths[!vapply(norm, .sandbox_under, logical(1), root = wd)]
 }
 
 # Which written paths violate the policy? A path is permitted if it lies under

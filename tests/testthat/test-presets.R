@@ -59,6 +59,32 @@ test_that("deliberation collects discussion and independent votes", {
   expect_equal(as.integer(d$tally[["yes"]]), 2L)
 })
 
+test_that("deliberate(rounds = 0) goes straight to the vote", {
+  mk <- function(name, vote) {
+    fake_agent(name, list(sprintf('{"vote": "%s", "reason": "r"}', vote)))
+  }
+  d <- deliberate(list(mk("A", "yes"), mk("B", "yes")),
+                  proposal = "p", rounds = 0, quiet = TRUE)
+  expect_equal(nrow(d$transcript), 0L)     # no discussion happened
+  expect_identical(sort(d$votes$vote), c("yes", "yes"))
+  expect_identical(d$decision, "yes")
+})
+
+test_that("focus_group and interview stop when question drafting is unparseable", {
+  # the moderator/interviewer replies with prose, not the requested JSON
+  mod <- fake_agent("Mod", list("I would rather chat than emit JSON."))
+  p1 <- fake_agent("P1", list("a")); p2 <- fake_agent("P2", list("b"))
+  expect_error(
+    focus_group(mod, list(p1, p2), topic = "t", n_questions = 2, quiet = TRUE),
+    "no parseable questions")
+
+  iv <- fake_agent("Iv", list("Still prose."))
+  resp <- fake_agent("R", list("an answer"))
+  expect_error(
+    interview(iv, resp, topic = "t", n_questions = 2, quiet = TRUE),
+    "no parseable questions")
+})
+
 test_that("a tied deliberation yields an NA decision", {
   mk <- function(name, vote) {
     fake_agent(name, list(paste0(name, " talks"),
