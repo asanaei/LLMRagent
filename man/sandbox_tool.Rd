@@ -35,10 +35,11 @@ object (as in \code{\link[LLMR:llm_tool]{LLMR::llm_tool()}}).}
 \item{required}{Character vector of required argument names.}
 
 \item{mode}{The confinement regime. \code{"read_only"}: the child runs with its
-working directory set to a scratch directory; relative writes land there and
+working directory set to a scratch directory; relative writes that stay
+under it land there and
 are hashed and checked against \code{allow_paths}, and any \emph{reported} write
 outside \code{allow_paths} is a violation (the default executor cannot intercept
-absolute-path writes; see Details). \code{"tempdir"}: the scratch directory is
+writes that leave the scratch directory; see Details). \code{"tempdir"}: the scratch directory is
 the sanctioned writable location and is always permitted; reported writes
 elsewhere are violations. \code{"container"}: confinement is delegated entirely to
 a supplied \code{executor}, which is the way to obtain a hard filesystem boundary.}
@@ -54,8 +55,9 @@ output) is truncated and flagged. Default \code{1e6}.}
 written file is a violation. The scratch working directory is always
 permitted (in \code{"tempdir"} mode). The check applies only to files the
 executor reports; with the default executor that means files written under
-the scratch directory, since absolute-path writes elsewhere are not seen
-(see Details). Default \code{NULL} (only the scratch directory is allowed).}
+the scratch directory, since writes that leave it (absolute or
+\verb{../}-traversing paths) are not seen (see Details). Default \code{NULL} (only
+the scratch directory is allowed).}
 
 \item{env}{How much of the ambient environment the child sees. Recorded for
 provenance and passed to the executor; the default executor treats
@@ -71,7 +73,9 @@ in-process with a one-time warning that confinement is weak), and
 An \code{llmr_tool} carrying a \code{"governance"} attribute whose \code{sandbox}
 element records the mode and \code{allow_paths}. Each call returns the tool's
 result string with a \code{"sandbox"} attribute recording the mode, duration,
-byte count, input and output file hashes, and status.
+byte count, input and output file hashes, status, and \code{outside_workdir}
+(reported writes and \code{allow_paths} entries resolving outside the scratch
+working directory; see Details).
 }
 \description{
 Like \code{\link[LLMR:llm_tool]{LLMR::llm_tool()}}, but the tool runs under confinement: a wall-clock
@@ -95,15 +99,22 @@ anything.
 \strong{What the default executor actually guarantees.} The default child-process
 executor runs the user function with its working directory set to a fresh
 scratch directory, then snapshots that directory before and after the call to
-hash every file written \emph{under it}. Relative writes therefore land in the
-scratch directory and are hashed and checked against \code{allow_paths}. The
-default executor does \strong{not} establish a hard filesystem boundary: an
-absolute-path write outside the scratch directory (e.g. to \verb{/tmp/out} or
-\verb{$HOME/out}) happens in the same operating-system namespace as the parent and
-is \emph{not} intercepted, so \code{llmragent_sandbox_violation} cannot fire for a write
-the executor never sees. The guarantee is therefore "confine and audit writes
-\emph{within} the scratch working directory", not "block absolute-path writes". To
-enforce a real boundary against arbitrary absolute paths, supply a
+hash every file written \emph{under it}. Relative writes that stay under the
+working directory therefore land in the scratch directory and are hashed and
+checked against \code{allow_paths}. The default executor does \strong{not} establish a
+hard filesystem boundary: a write that leaves the scratch directory -- an
+absolute path (e.g. \verb{/tmp/out}, \verb{$HOME/out}) or an upward-traversing relative
+path (e.g. \code{../out}) -- happens in the same operating-system namespace as the
+parent and is \emph{not} intercepted or snapshotted, so
+\code{llmragent_sandbox_violation} cannot fire for a write the executor never
+sees. The guarantee is therefore "audit and check the writes the executor
+\emph{reports} (with the default executor: writes remaining under the scratch
+working directory)", not "block writes elsewhere". As a best-effort flag,
+any \emph{reported} write, and any \code{allow_paths} entry, that resolves outside the
+scratch working directory is recorded in the result's \code{sandbox} attribute
+(field \code{outside_workdir}), so a call that sanctioned or performed an
+out-of-scratch write is visible in the provenance rather than silent. To
+enforce a real boundary against arbitrary paths, supply a
 \code{mode = "container"} executor (or an OS-level sandbox) that runs the function
 in a confined namespace and reports the files it wrote; the \code{allow_paths}
 check then applies to whatever that executor reports.

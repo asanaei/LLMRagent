@@ -62,8 +62,9 @@ annotations.
 pauses for sign-off (see \code{\link[=human_gate]{human_gate()}}).
 \item \strong{Schema pinning} (\code{pin_schemas = TRUE}): each tool's full advertised
 signature (input schema, description, and annotations) is hashed at first
-listing and re-verified before every call. A later change, or a
-server that refuses to let us re-verify (a \code{tools/get} that errors or
+listing and re-verified before every call by re-listing the server's tools
+(\code{tools/list}; MCP has no per-tool fetch). A later change, or a server that
+refuses to let us re-verify (a re-listing that errors, drops the tool, or
 returns no schema), raises \code{llmragent_mcp_schema_drift} rather than
 trusting the new definition or failing open (the schema-drift defense). The
 re-check \emph{fails closed}: if it cannot confirm the tool is unchanged, it

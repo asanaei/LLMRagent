@@ -35,6 +35,11 @@ nondeterministic); \code{verify = "strict"} requires every node to match (sound
 only for fully deterministic graphs or archive-served calls). A mismatch
 raises \code{llmragent_replay_mismatch} naming the first divergent node.
 }
+\details{
+A run containing a \code{\link[=human_gate]{human_gate()}} replays up to the gate and pauses there,
+verifying the executed nodes before it; a pause is not an executed node, so
+its \code{replay_match} is \code{NA} and it occupies no comparison position.
+}
 \seealso{
 \code{\link[=run_workflow]{run_workflow()}}
 }

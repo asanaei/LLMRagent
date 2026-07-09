@@ -19,7 +19,7 @@ An \link{Agent}.
 }
 \description{
 Restores an agent saved with \code{\link[=save_agent]{save_agent()}}: same persona, config, memory
-contents, budget, and accounting. Because the config holds an
+contents, budget, guardrails, and accounting. Because the config holds an
 environment-variable reference rather than a key, the loaded agent works
 immediately wherever that variable is set. Call, token, and tool counters
 carry over, so a budget keeps binding across sessions; the wall-clock

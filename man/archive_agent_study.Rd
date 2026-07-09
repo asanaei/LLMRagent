@@ -21,14 +21,18 @@ or preset result, a pipeline, an experiment, or an \code{agent_run}).}
 \item{include_messages}{If \code{TRUE} (default), write the transcript and the
 free-text columns of the tool and state tables. If \code{FALSE}, those tables
 are still written but their free-text columns are blanked, keeping only
-structure, hashes, and metadata.}
+structure, hashes, and metadata; the records in \code{calls.jsonl} likewise
+omit the request body and reply text (each record keeps its precomputed
+\code{request_hash}, so the join invariant holds).}
 
 \item{redact}{Optional redaction applied to the free-text columns of the
 written transcript, tool, and state tables (\code{text}, \code{content}, \code{arguments},
-\code{result}, \code{response_text}) -- never to hashes, and never to the verbatim
-audit log. Either a \verb{function(text) -> text}, or a character vector of
-regular expressions, each of which is replaced by \code{"[REDACTED]"}. Redaction
-is applied to the on-disk copy after hashing, so the join invariant holds.}
+\code{result}, \code{response_text}) and to the reply text of the records in
+\code{calls.jsonl} -- never to hashes, and never to a request body, which is
+the call's identity (omit request bodies with \code{include_messages = FALSE}).
+Either a \verb{function(text) -> text}, or a character vector of regular
+expressions, each of which is replaced by \code{"[REDACTED]"}. Redaction is
+applied to the on-disk copy after hashing, so the join invariant holds.}
 
 \item{formats}{Which optional formats to write, any of \code{"csv"} (the tabular
 views), \code{"jsonl"} (events and calls; always written), and \code{"rds"} (the
@@ -53,8 +57,11 @@ just the prose.
 Hashes are identity, not outcome. The \code{request_hash} in \code{calls.jsonl} is
 computed over the original request, so a call read back from the archive
 still matches the same call issued live. Redaction therefore never touches a
-hash, and when an LLMR audit log is present it is copied byte-for-byte rather
-than reserialized.
+hash or a request body, and when an LLMR audit log is present it is copied
+byte-for-byte rather than reserialized -- unless a privacy lever is engaged:
+with \code{include_messages = FALSE} each copied record's request body and reply
+text are removed (its precomputed \code{request_hash} is kept, so the join
+survives), and with \code{redact} the copied records' reply text is scrubbed.
 }
 \examples{
 \dontrun{

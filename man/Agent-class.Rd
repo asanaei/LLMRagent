@@ -46,6 +46,7 @@ plus accessors for the trace, usage, and transcript.
 \item \href{#method-Agent-bind_run}{\code{Agent$bind_run()}}
 \item \href{#method-Agent-id}{\code{Agent$id()}}
 \item \href{#method-Agent-persona_frame}{\code{Agent$persona_frame()}}
+\item \href{#method-Agent-guardrail_set}{\code{Agent$guardrail_set()}}
 \item \href{#method-Agent-usage}{\code{Agent$usage()}}
 \item \href{#method-Agent-transcript}{\code{Agent$transcript()}}
 \item \href{#method-Agent-reset}{\code{Agent$reset()}}
@@ -88,6 +89,9 @@ Create an agent (prefer the \code{\link[=agent]{agent()}} constructor).
 \item{\code{memory}}{A memory object; default \code{memory_buffer(40)}.}
 
 \item{\code{budget}}{A \code{\link[=budget]{budget()}} object.}
+
+\item{\code{guardrails}}{Optional \code{\link[=guardrails]{guardrails()}} checks on inputs, outputs, and
+tool calls.}
 
 \item{\code{quiet}}{If TRUE, \code{chat()} does not print replies.}
 
@@ -251,6 +255,18 @@ The agent's \code{persona_frame()} if one was supplied, else NULL
 hashing and scope conditions.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{Agent$persona_frame()}\if{html}{\out{</div>}}
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-Agent-guardrail_set"></a>}}
+\if{latex}{\out{\hypertarget{method-Agent-guardrail_set}{}}}
+\subsection{Method \code{guardrail_set()}}{
+The agent's \code{\link[=guardrails]{guardrails()}} object, or NULL when none are
+attached. Used by the persistence and approval-checkpoint layers so a
+rebuilt agent keeps its policy.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{Agent$guardrail_set()}\if{html}{\out{</div>}}
 }
 
 }

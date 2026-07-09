@@ -47,8 +47,9 @@ the same \code{agent_tool()} object is reused across agents or experiment cells;
 build a fresh tool per independent cell (as you would a fresh agent) when
 each cell should get its own budget.}
 
-\item{max_bytes}{Maximum result size; a larger result is truncated and
-flagged.}
+\item{max_bytes}{Maximum result size in bytes (as measured by
+\code{nchar(type = "bytes")}); a larger result is truncated at a character
+boundary within the cap and flagged.}
 }
 \value{
 An \code{llmr_tool} carrying a \code{"governance"} attribute.
