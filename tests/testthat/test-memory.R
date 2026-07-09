@@ -51,6 +51,38 @@ test_that("recall memory retrieves by similarity", {
   })
 })
 
+test_that("recall memory clears its embedding cache with the messages", {
+  # The cache is indexed by message POSITION. If clear() left it in place, a
+  # fresh conversation would be ranked by the deleted messages' embeddings:
+  # here the stale cache puts the money embedding at position 2, so a money
+  # query would wrongly recall the new position-2 message ("the sky is blue").
+  emb_cfg <- LLMR::llm_config("gemini", "gemini-embedding-001", embedding = TRUE)
+  m <- memory_recall(emb_cfg, keep_recent = 1, k = 1)
+  for (txt in c("filler", "we allocated 40 million dollars", "more filler")) {
+    m$add("user", txt)
+  }
+  fake_embed <- function(texts, embed_config, ...) {
+    t(vapply(texts, function(s) {
+      c(as.numeric(grepl("allocat|million|dollar|money", s)),
+        as.numeric(grepl("sky|blue", s)),
+        1)
+    }, numeric(3)))
+  }
+  with_stub_llmr("get_batched_embeddings", fake_embed, {
+    got <- m$get(query = "how much money?")
+    expect_true(any(grepl("40 million", vapply(got, `[[`, "", "content"))))
+    m$clear()
+    expect_identical(m$size(), 0L)
+    for (txt in c("money money money", "the sky is blue", "filler again")) {
+      m$add("user", txt)
+    }
+    got2 <- m$get(query = "how much money?")
+    txts2 <- vapply(got2, `[[`, "", "content")
+    expect_true(any(grepl("money money money", txts2)))   # true best match
+    expect_false(any(grepl("sky is blue", txts2)))        # not the stale rank
+  })
+})
+
 test_that("memory state round-trips through save/load", {
   m <- memory_buffer(keep = 7)
   m$add("user", "alpha")$add("assistant", "beta")

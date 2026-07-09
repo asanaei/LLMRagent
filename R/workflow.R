@@ -384,8 +384,11 @@ fork_workflow <- function(x, wf, at = NULL, new_dir = NULL, mutate = NULL,
   run_id <- .llmragent_id("wffork")
   .wf_save_state(bdir, step, node_name, st)
   .wf_log(bdir, run_id, node_name, "ok", LLMR::llm_hash(st), step)
-  # continue from the node AFTER the forked one
-  .wf_drive(wf, st, bdir, run_id, node = .wf_next(wf, nd, st), step = step,
+  # Continue from the node AFTER the forked one -- except at step 0: the
+  # "entry" snapshot is the state BEFORE any node ran, so a fork there must
+  # execute the entry node itself, not skip it.
+  start <- if (step == 0L) wf$entry else .wf_next(wf, nd, st)
+  .wf_drive(wf, st, bdir, run_id, node = start, step = step,
             max_steps = max_steps, quiet = quiet, ...)
 }
 
@@ -398,6 +401,10 @@ fork_workflow <- function(x, wf, at = NULL, new_dir = NULL, mutate = NULL,
 #' nondeterministic); `verify = "strict"` requires every node to match (sound
 #' only for fully deterministic graphs or archive-served calls). A mismatch
 #' raises `llmragent_replay_mismatch` naming the first divergent node.
+#'
+#' A run containing a [human_gate()] replays up to the gate and pauses there,
+#' verifying the executed nodes before it; a pause is not an executed node, so
+#' its `replay_match` is `NA` and it occupies no comparison position.
 #'
 #' @param x A `checkpoint_dir` or `agent_workflow_run`.
 #' @param wf The `agent_workflow`.
@@ -429,27 +436,33 @@ replay_run <- function(x, wf, verify = c("structural", "strict"),
   # branch) is itself a mismatch.
   # Drop the "entry" event (the initial state snapshot, not an executed node):
   # fresh$steps never contains it, so it must not occupy position 1 of the
-  # recorded sequence either.
+  # recorded sequence either. Paused (human-gate) steps are dropped from BOTH
+  # sides: rec_ok keeps only "ok" rows, and a fresh replay of a gated run
+  # pauses at the gate, whose row is a pause marker, not an executed node --
+  # keeping it on one side only would shift every later position. A gate's
+  # replay_match is NA (a pause is not hash-verified).
   rec_ok <- recorded[recorded$status == "ok" & recorded$node != "entry", ]
-  matches <- logical(nrow(fresh$steps))
-  for (i in seq_len(nrow(fresh$steps))) {
+  fresh_idx <- which(fresh$steps$status != "paused")
+  matches <- rep(NA, nrow(fresh$steps))
+  for (j in seq_along(fresh_idx)) {
+    i <- fresh_idx[j]
     nm <- fresh$steps$node[i]
     fh <- fresh$steps$state_hash[i]
     is_model <- nm %in% names(wf$nodes) &&
       wf$nodes[[nm]]$kind %in% c("agent", "evaluator_agent")
-    if (i > nrow(rec_ok)) {
+    if (j > nrow(rec_ok)) {
       # the replay executed more steps than were recorded: a path divergence
       matches[i] <- FALSE
       rlang::abort(
-        sprintf("Replay diverged: step %d ('%s') has no recorded counterpart.", i, nm),
+        sprintf("Replay diverged: step %d ('%s') has no recorded counterpart.", j, nm),
         class = c("llmragent_replay_mismatch", "error", "condition"), node = nm)
     }
-    rnode <- rec_ok$node[i]; rh <- rec_ok$state_hash[i]
+    rnode <- rec_ok$node[j]; rh <- rec_ok$state_hash[j]
     # a different node at this position is a path divergence (always a mismatch)
     if (!identical(nm, rnode)) {
       matches[i] <- FALSE
       rlang::abort(
-        sprintf("Replay diverged at step %d: recorded node '%s', replayed '%s'.", i, rnode, nm),
+        sprintf("Replay diverged at step %d: recorded node '%s', replayed '%s'.", j, rnode, nm),
         class = c("llmragent_replay_mismatch", "error", "condition"), node = nm)
     }
     same <- identical(rh, fh)
@@ -457,7 +470,7 @@ replay_run <- function(x, wf, verify = c("structural", "strict"),
     if (!same && (identical(verify, "strict") || !is_model)) {
       rlang::abort(
         sprintf("Replay mismatch at step %d node '%s': recorded %s, replayed %s (verify = %s).",
-                i, nm, substr(rh, 1, 12), substr(fh, 1, 12), verify),
+                j, nm, substr(rh, 1, 12), substr(fh, 1, 12), verify),
         class = c("llmragent_replay_mismatch", "error", "condition"),
         node = nm, recorded = rh, replayed = fh)
     }

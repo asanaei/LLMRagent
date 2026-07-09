@@ -125,6 +125,42 @@ test_that("fork branches a new run from a snapshot without rerunning it", {
   expect_false(identical(branch$checkpoint_dir, run$checkpoint_dir))  # new run dir
 })
 
+test_that("a fork at the entry snapshot re-executes the entry node", {
+  wf <- agent_workflow("w") |>
+    add_node("a", function(state) { state$a <- (state$seed %||% 0L) + 1L; state }) |>
+    add_node("b", function(state) { state$b <- state$a * 10L; state }) |>
+    add_edge("a", "b")
+  run <- run_workflow(wf, input = NULL, state = list(seed = 1L), quiet = TRUE)
+  expect_identical(run$state$b, 20L)
+  # forking at step 0 (the pre-execution entry snapshot) must run 'a' again;
+  # skipping it would leave state$a unset and 'b' would fail or misread it
+  branch <- fork_workflow(run, wf, at = 0L,
+                          mutate = function(state) { state$seed <- 5L; state },
+                          quiet = TRUE)
+  expect_identical(branch$status, "done")
+  expect_identical(branch$state$a, 6L)    # 'a' executed on the mutated state
+  expect_identical(branch$state$b, 60L)
+})
+
+test_that("replay verifies a run that contains a human gate", {
+  wf <- agent_workflow("w") |>
+    add_node("prep", function(state) { state$ready <- TRUE; state }) |>
+    add_node("gate", human_gate("approve_step")) |>
+    add_node("after", function(state) { state$done <- TRUE; state }) |>
+    add_edge("prep", "gate") |>
+    add_edge("gate", "after")
+  run <- run_workflow(wf, input = NULL, quiet = TRUE)
+  resumed <- resume_workflow(run, approve = TRUE, quiet = TRUE)
+  expect_identical(resumed$status, "done")
+  # a fresh replay pauses at the gate; the paused row must not shift the
+  # position matching (it is filtered on both sides), so the deterministic
+  # 'prep' node verifies cleanly instead of raising a spurious mismatch
+  rp <- replay_run(run, wf, verify = "strict", quiet = TRUE)
+  expect_identical(rp$status, "paused")
+  expect_true(all(rp$steps$replay_match[rp$steps$status == "ok"]))
+  expect_true(is.na(rp$steps$replay_match[rp$steps$node == "gate"]))
+})
+
 test_that("workflow_from_pipeline reproduces a linear chain", {
   a1 <- fake_agent("E", list("EXTRACTED"))
   a2 <- fake_agent("R", list("REWRITTEN"))

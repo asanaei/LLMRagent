@@ -8,7 +8,9 @@
 
 # A process-local monotone counter, so ids are unique within a session without a
 # uuid dependency. The time component keeps them sortable and unique across
-# sessions. (R, not a workflow script: Sys.time() is available here.)
+# sessions; the PID keeps them unique across parallel workers minting ids in
+# the same second (an experiment's futures would otherwise collide, breaking
+# provenance and the leakage checker).
 .llmragent_id_counter <- local({
   n <- 0L
   function() { n <<- n + 1L; n }
@@ -19,7 +21,7 @@
 #' @noRd
 .llmragent_id <- function(prefix = "id") {
   ts <- format(Sys.time(), "%Y%m%d%H%M%S")
-  sprintf("%s-%s-%06d", prefix, ts, .llmragent_id_counter())
+  sprintf("%s-%s-%d-%06d", prefix, ts, Sys.getpid(), .llmragent_id_counter())
 }
 
 # The active LLMR audit-log path, or NULL when logging is off. Uses LLMR's
