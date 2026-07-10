@@ -30,9 +30,18 @@
 #' @export
 budget <- function(max_calls = Inf, max_tokens = Inf,
                    max_tool_calls = Inf, max_seconds = Inf) {
+  check_limit <- function(x, what) {
+    if (!is.numeric(x) || length(x) != 1L || is.na(x) || x < 0) {
+      stop("`", what, "` must be a single non-NA numeric >= 0 (Inf for no limit).",
+           call. = FALSE)
+    }
+    as.numeric(x)
+  }
   structure(
-    list(max_calls = max_calls, max_tokens = max_tokens,
-         max_tool_calls = max_tool_calls, max_seconds = max_seconds),
+    list(max_calls = check_limit(max_calls, "max_calls"),
+         max_tokens = check_limit(max_tokens, "max_tokens"),
+         max_tool_calls = check_limit(max_tool_calls, "max_tool_calls"),
+         max_seconds = check_limit(max_seconds, "max_seconds")),
     class = "agent_budget"
   )
 }
@@ -70,6 +79,8 @@ Agent <- R6::R6Class(
     #' @param tools List of `LLMR::llm_tool()` objects (or a single one).
     #' @param memory A memory object; default `memory_buffer(40)`.
     #' @param budget A [budget()] object.
+    #' @param guardrails Optional [guardrails()] checks on inputs, outputs, and
+    #'   tool calls.
     #' @param quiet If TRUE, `chat()` does not print replies.
     #' @param caller Internal seam for tests: a function
     #'   `(config, messages, tools, ...)` returning an `llmr_response`.
@@ -253,6 +264,11 @@ Agent <- R6::R6Class(
     #'   hashing and scope conditions.
     persona_frame = function() private$.persona_frame,
 
+    #' @description The agent's [guardrails()] object, or NULL when none are
+    #'   attached. Used by the persistence and approval-checkpoint layers so a
+    #'   rebuilt agent keeps its policy.
+    guardrail_set = function() private$guardrails,
+
     #' @description Totals: calls made, tokens spent, tool calls, elapsed time.
     usage = function() {
       tibble::tibble(
@@ -416,6 +432,19 @@ Agent <- R6::R6Class(
       resp <- tryCatch(
         private$caller(cfg, messages, tls, ...),
         llmr_tool_limit = function(e) {
+          # The loop aborted mid-exchange, so the exact spend never reaches
+          # account(). Account the exchange CONSERVATIVELY (fail closed): the
+          # loop was granted the remaining tool-call allowance and stops only
+          # when the model asks for a call beyond it, so charge the full
+          # allowance to n_tool_calls, and at least one model call to n_calls.
+          # Exact token usage is unavailable here; the tool-call and call
+          # ceilings still bind cumulatively across exchanges, which is the
+          # budget's guarantee.
+          allowance <- self$budget$max_tool_calls - private$n_tool_calls
+          if (is.finite(allowance) && allowance > 0) {
+            private$n_tool_calls <- private$n_tool_calls + as.integer(allowance)
+          }
+          private$n_calls <- private$n_calls + 1L
           private$span_add("budget_stop", note = "max_tool_calls")
           rlang::abort(
             message = sprintf(
@@ -501,11 +530,15 @@ Agent <- R6::R6Class(
         status = if (ok) "ok" else "error",
         request_hash = if (is.data.frame(rec_row)) rec_row$request_hash[[1]] else NA_character_,
         response_id = if (is.data.frame(rec_row)) rec_row$response_id[[1]] else NA_character_,
-        # Carry the rendered request messages, the served model id, the usage,
-        # and the reply so the archive can emit a true LLMR audit-log record
-        # (request body included) even when llm_log_enable() was not active.
+        # Carry the rendered request messages, the config's generation params,
+        # the served model id, the usage, and the reply so the archive can emit
+        # a true LLMR audit-log record (request body included) even when
+        # llm_log_enable() was not active. The params matter for the join
+        # invariant: request_hash is keyed on them, so an archived request body
+        # written without them would recompute to a different hash.
         meta = list(record = rec_row, streamed = isTRUE(streamed),
                     request = private$last_messages,
+                    params = private$last_cfg$model_params %||% list(),
                     provider = private$last_cfg$provider %||% NA_character_,
                     model = private$last_cfg$model %||% NA_character_,
                     model_version = if (inherits(resp, "llmr_response")) resp$model_version else NA_character_,

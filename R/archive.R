@@ -27,8 +27,11 @@
 #' Hashes are identity, not outcome. The `request_hash` in `calls.jsonl` is
 #' computed over the original request, so a call read back from the archive
 #' still matches the same call issued live. Redaction therefore never touches a
-#' hash, and when an LLMR audit log is present it is copied byte-for-byte rather
-#' than reserialized.
+#' hash or a request body, and when an LLMR audit log is present it is copied
+#' byte-for-byte rather than reserialized -- unless a privacy lever is engaged:
+#' with `include_messages = FALSE` each copied record's request body and reply
+#' text are removed (its precomputed `request_hash` is kept, so the join
+#' survives), and with `redact` the copied records' reply text is scrubbed.
 #'
 #' @param run An object accepted by [as_agent_run()] (an [Agent], a conversation
 #'   or preset result, a pipeline, an experiment, or an `agent_run`).
@@ -36,13 +39,17 @@
 #' @param include_messages If `TRUE` (default), write the transcript and the
 #'   free-text columns of the tool and state tables. If `FALSE`, those tables
 #'   are still written but their free-text columns are blanked, keeping only
-#'   structure, hashes, and metadata.
+#'   structure, hashes, and metadata; the records in `calls.jsonl` likewise
+#'   omit the request body and reply text (each record keeps its precomputed
+#'   `request_hash`, so the join invariant holds).
 #' @param redact Optional redaction applied to the free-text columns of the
 #'   written transcript, tool, and state tables (`text`, `content`, `arguments`,
-#'   `result`, `response_text`) -- never to hashes, and never to the verbatim
-#'   audit log. Either a `function(text) -> text`, or a character vector of
-#'   regular expressions, each of which is replaced by `"[REDACTED]"`. Redaction
-#'   is applied to the on-disk copy after hashing, so the join invariant holds.
+#'   `result`, `response_text`) and to the reply text of the records in
+#'   `calls.jsonl` -- never to hashes, and never to a request body, which is
+#'   the call's identity (omit request bodies with `include_messages = FALSE`).
+#'   Either a `function(text) -> text`, or a character vector of regular
+#'   expressions, each of which is replaced by `"[REDACTED]"`. Redaction is
+#'   applied to the on-disk copy after hashing, so the join invariant holds.
 #' @param formats Which optional formats to write, any of `"csv"` (the tabular
 #'   views), `"jsonl"` (events and calls; always written), and `"rds"` (the
 #'   `agent_run` object as `run.rds`). Defaults to all three.
@@ -115,13 +122,31 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
       run_hashes <- tryCatch(
         stats::na.omit(tibble::as_tibble(lvl("call"))$request_hash),
         error = function(e) character(0))
+      n_kept <- NA_integer_
       if (length(run_hashes)) {
-        .filter_log_to_hashes(log, dest, run_hashes)
+        n_kept <- .filter_log_to_hashes(log, dest, run_hashes)
       } else {
         file.copy(log, dest, overwrite = TRUE)  # no hashes known: copy whole log
       }
-      tryCatch(LLMR::llm_log_read(dest), error = function(e) NULL)
-      "live_llmr_log"
+      # The privacy levers apply to the copied lines too: include_messages =
+      # FALSE strips each record's request body and reply text (the precomputed
+      # request_hash is kept, so the join survives); a redactor scrubs the
+      # reply text. Only with neither lever is the copy byte-for-byte.
+      if (!isTRUE(include_messages) || !is.null(redact)) {
+        .privacy_scrub_log(dest, include_messages = include_messages,
+                           redactor = redactor)
+      }
+      if (identical(n_kept, 0L)) {
+        # An honest flag: the live log had none of this run's calls (e.g. it
+        # was rotated or belongs to another session), so calls.jsonl is empty
+        # and the archive must not claim live-log provenance for its calls.
+        warning("The active LLMR audit log contains no records matching this ",
+                "run's request hashes; calls.jsonl is empty and the archive ",
+                "is marked accordingly.", call. = FALSE)
+        "live_llmr_log_empty"
+      } else {
+        "live_llmr_log"
+      }
     } else {
       .write_audit_calls(r, dest, include_messages = include_messages,
                          redactor = redactor)
@@ -261,14 +286,16 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
 # request_hash is in `keep_hashes` (this run's calls). Uses llm_log_read()'s
 # manifest, which computes request_hash exactly as a live call would, so the
 # match is on the same identity the run's call level carries. Falls back to a
-# full copy if the manifest cannot be built.
+# full copy if the manifest cannot be built. Returns the number of records
+# written (NA for the full-copy fallback), so the caller can flag an archive
+# whose live log turned out to contain none of the run's calls.
 #' @keywords internal
 #' @noRd
 .filter_log_to_hashes <- function(log, dest, keep_hashes) {
   parsed <- tryCatch(LLMR::llm_log_read(log), error = function(e) NULL)
   if (is.null(parsed) || is.null(parsed$manifest) || !nrow(parsed$manifest)) {
     file.copy(log, dest, overwrite = TRUE)
-    return(invisible(dest))
+    return(invisible(NA_integer_))
   }
   man <- parsed$manifest
   keep_idx <- man$idx[man$request_hash %in% keep_hashes]
@@ -277,6 +304,37 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
   con <- file(dest, open = "wb")
   on.exit(close(con), add = TRUE)
   if (length(out_lines)) writeLines(enc2utf8(out_lines), con, useBytes = TRUE)
+  invisible(length(out_lines))
+}
+
+# Apply the privacy levers to an already-written calls.jsonl copied from a
+# live LLMR audit log. include_messages = FALSE removes each record's request
+# body and reply text, first stamping the precomputed request_hash into the
+# record (the reader can no longer recompute it once the body is gone, and
+# the hash is identity, not content). A redactor scrubs the reply text only:
+# the request body is the call's identity and is never redacted -- omitting
+# it wholesale (include_messages = FALSE) is the lever for private requests.
+#' @keywords internal
+#' @noRd
+.privacy_scrub_log <- function(dest, include_messages = TRUE, redactor = NULL) {
+  parsed <- tryCatch(LLMR::llm_log_read(dest), error = function(e) NULL)
+  if (is.null(parsed) || !length(parsed$records)) return(invisible(dest))
+  man <- parsed$manifest
+  lines <- vapply(seq_along(parsed$records), function(i) {
+    rec <- parsed$records[[i]]$rec
+    if (!isTRUE(include_messages)) {
+      if (!is.null(rec[["request"]]) && is.null(rec$request_hash)) {
+        rec$request_hash <- man$request_hash[man$idx == i][1]
+      }
+      rec[["request"]] <- NULL
+      rec$text <- NULL
+    } else if (!is.null(redactor) && !is.null(rec$text)) {
+      rec$text <- redactor(as.character(rec$text))
+    }
+    as.character(jsonlite::toJSON(rec, auto_unbox = TRUE, null = "null",
+                                  na = "null"))
+  }, character(1))
+  .write_lines(lines, dest)
   invisible(dest)
 }
 
@@ -306,7 +364,12 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
     # make the archive misrepresent what was actually sent.
     req <- NULL
     if (isTRUE(include_messages) && !is.null(m$request)) {
-      req <- list(messages = .messages_to_turns(m$request, redactor = NULL))
+      # The generation parameters are part of the request's identity: LLMR's
+      # reader recomputes request_hash over the body's params exactly as the
+      # live hash was keyed on the config's, so they are written at the top
+      # level of the body, the same place LLMR's own audit log carries them.
+      req <- c(list(messages = .messages_to_turns(m$request, redactor = NULL)),
+               .archive_body_params(m$params))
     }
     usage <- m$usage
     rec <- list(
@@ -333,6 +396,33 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
     cat(as.character(line), "\n", sep = "", file = con)
   }
   "audit_from_spans"
+}
+
+# The generation parameters to write into an audit record's request body, so
+# that a reader recomputes the same request_hash the live call was keyed on.
+# Keeps exactly what LLMR's hash keeps: model params minus transport-only
+# settings, minus empty/NA values, minus anything JSON cannot carry
+# (functions). The reader's own normalization then reproduces the config-side
+# param set. The drop list mirrors LLMR's transport list; a param dropped
+# here AND by LLMR's hash is harmless either way.
+#' @keywords internal
+#' @noRd
+.archive_body_params <- function(params) {
+  if (!is.list(params) || !length(params)) return(list())
+  drop <- c(
+    # structural body fields (never params)
+    "messages", "contents", "system", "systemInstruction", "generationConfig",
+    "model", "tools",
+    # transport-only settings LLMR's request hash drops
+    "req_builder", "request_modifier", "response_modifier", "timeout",
+    "api_url", "base_url", "max_tries", "verbose", "cache",
+    "use_responses_api", "anthropic_beta", "vertex", "project", "location",
+    "stream", "stream_options")
+  keep <- params[setdiff(names(params), drop)]
+  keep[vapply(keep, function(v) {
+    !(is.null(v) || is.function(v) || length(v) == 0L ||
+        (length(v) == 1L && is.atomic(v) && is.na(v)))
+  }, logical(1))]
 }
 
 # Convert a messages object (named char vector, bare string, or list of

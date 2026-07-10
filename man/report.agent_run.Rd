@@ -2,9 +2,12 @@
 % Please edit documentation in R/methods_llmr.R
 \name{report.agent_run}
 \alias{report.agent_run}
+\alias{report.Agent}
 \title{Draft a methods-section report for an agent run}
 \usage{
 \method{report}{agent_run}(x, ...)
+
+\method{report}{Agent}(x, ...)
 }
 \arguments{
 \item{x}{An object accepted by \code{\link[=as_agent_run]{as_agent_run()}}.}

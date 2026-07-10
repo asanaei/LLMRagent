@@ -15,9 +15,15 @@ save_agent(x, path)
 \code{path}, invisibly.
 }
 \description{
-Writes the agent's name, persona, config, memory contents, and trace to an
-RDS file. Tools are functions and are not serialized; re-attach them at
-load time via \code{load_agent(tools = ...)}.
+Writes the agent's name, persona, config, memory contents, guardrails, and
+trace to an RDS file. Tools are functions and are not serialized; re-attach
+them at load time via \code{load_agent(tools = ...)}. Guardrails are serialized
+(their check functions travel through RDS) and restored automatically.
+}
+\details{
+When the config carries a literal API key (one passed as a string rather
+than the usual environment-variable reference), saving warns: the key would
+be written to disk inside the RDS file.
 }
 \examples{
 \dontrun{

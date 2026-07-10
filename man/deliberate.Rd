@@ -19,7 +19,8 @@ deliberate(
 
 \item{proposal}{The proposal under deliberation (character scalar).}
 
-\item{rounds}{Discussion rounds before the vote (default 2).}
+\item{rounds}{Discussion rounds before the vote (default 2). \code{rounds = 0}
+skips the discussion: the panel votes on the bare proposal.}
 
 \item{options}{Vote options. Default \code{c("yes", "no", "abstain")}.}
 

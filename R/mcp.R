@@ -29,8 +29,9 @@
 #'   pauses for sign-off (see [human_gate()]).
 #' - **Schema pinning** (`pin_schemas = TRUE`): each tool's full advertised
 #'   signature (input schema, description, and annotations) is hashed at first
-#'   listing and re-verified before every call. A later change, or a
-#'   server that refuses to let us re-verify (a `tools/get` that errors or
+#'   listing and re-verified before every call by re-listing the server's tools
+#'   (`tools/list`; MCP has no per-tool fetch). A later change, or a server that
+#'   refuses to let us re-verify (a re-listing that errors, drops the tool, or
 #'   returns no schema), raises `llmragent_mcp_schema_drift` rather than
 #'   trusting the new definition or failing open (the schema-drift defense). The
 #'   re-check *fails closed*: if it cannot confirm the tool is unchanged, it
@@ -99,7 +100,7 @@ mcp_tools <- function(config,
     # alone would let a server flip readOnlyHint -> destructive, or rewrite the
     # description into an injection, after listing without tripping the check.
     # The originally-listed description/annotations are kept so the re-check can
-    # rebuild the signature even when tools/get returns only the schema.
+    # rebuild the signature even when a re-listing returns only the schema.
     if (isTRUE(pin_schemas))
       assign(nm, list(sig = .mcp_signature(schema, desc_raw, rt$annotations),
                       desc = desc_raw, annotations = rt$annotations),
@@ -141,22 +142,30 @@ mcp_tools <- function(config,
       return(sprintf("BLOCKED: tool '%s' is not positively read-only and policy is read_only.", name))
     }
     # rug-pull re-check: the server must not have changed this tool's signature
-    # since it was listed. This FAILS CLOSED -- a server that errors on
-    # tools/get, or returns no schema, is treated as drift, because we cannot
-    # re-verify what we are about to call.
+    # since it was listed. The MCP protocol has no per-tool fetch (only
+    # tools/list and tools/call), so the re-check re-lists the server's tools
+    # and selects this one by name. This FAILS CLOSED -- a server whose
+    # re-listing errors, no longer includes the tool, or reports it without a
+    # schema is treated as drift, because we cannot re-verify what we are about
+    # to call.
     if (isTRUE(pin_schemas) && exists(name, envir = pins)) {
       pinned <- get(name, envir = pins)
-      got <- tryCatch(tr("tools/get", list(name = name)), error = function(e) NULL)
+      listed <- tryCatch(tr("tools/list", list()), error = function(e) NULL)
+      got <- NULL
+      for (cand in (listed$tools %||% list())) {
+        if (identical(cand$name %||% "", name)) { got <- cand; break }
+      }
       cur_schema <- got$inputSchema %||% got$input_schema %||% NULL
       if (is.null(cur_schema)) {
         rlang::abort(
-          sprintf(paste0("MCP tool '%s' could not be re-verified (tools/get failed ",
-                         "or returned no schema); refusing (possible rug pull)."), name),
+          sprintf(paste0("MCP tool '%s' could not be re-verified (tools/list failed, ",
+                         "no longer lists the tool, or returned no schema); ",
+                         "refusing (possible rug pull)."), name),
           class = c("llmragent_mcp_schema_drift", "error", "condition"), tool = name)
       }
-      # Rebuild the signature. Use whatever tools/get reports for description /
-      # annotations; fall back to the originally-listed values when it omits
-      # them (a schema-only tools/get still pins+checks the schema).
+      # Rebuild the signature. Use whatever the re-listing reports for
+      # description / annotations; fall back to the originally-listed values
+      # when it omits them (a schema-only listing still pins+checks the schema).
       cur_desc <- if (!is.null(got$description)) as.character(got$description) else pinned$desc
       cur_ann  <- if (!is.null(got$annotations)) got$annotations else pinned$annotations
       cur_sig  <- .mcp_signature(cur_schema, cur_desc, cur_ann)

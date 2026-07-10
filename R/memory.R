@@ -158,6 +158,13 @@ MemoryRecall <- R6::R6Class(
       n <- length(private$msgs)
       if (!n || private$keep_recent <= 0L) return(list())
       private$msgs[max(1L, n - private$keep_recent + 1L):n]
+    },
+    # Clearing the messages must clear their embeddings too: the cache is
+    # indexed by message position, so keeping it would rank stale embeddings
+    # of deleted messages against the new conversation after agent$reset().
+    clear = function() {
+      private$emb <- NULL
+      super$clear()
     }
   ),
   private = list(

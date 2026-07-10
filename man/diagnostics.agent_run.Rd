@@ -2,9 +2,12 @@
 % Please edit documentation in R/methods_llmr.R
 \name{diagnostics.agent_run}
 \alias{diagnostics.agent_run}
+\alias{diagnostics.Agent}
 \title{Machine-readable diagnostics for an agent run}
 \usage{
 \method{diagnostics}{agent_run}(x, ...)
+
+\method{diagnostics}{Agent}(x, ...)
 }
 \arguments{
 \item{x}{An object accepted by \code{\link[=as_agent_run]{as_agent_run()}} (an \link{Agent}, a conversation

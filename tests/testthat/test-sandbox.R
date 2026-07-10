@@ -132,6 +132,39 @@ test_that("a write inside allow_paths is permitted", {
   expect_true(target %in% names(attr(out, "sandbox")$out_hashes))
 })
 
+test_that("out-of-scratch writes and allow_paths are flagged in the provenance", {
+  dir <- normalizePath(tempfile("allowed_"), winslash = "/", mustWork = FALSE)
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  on.exit(unlink(dir, recursive = TRUE, force = TRUE), add = TRUE)
+  target <- file.path(dir, "out.txt")
+
+  # A sanctioned write outside the scratch workdir passes the violation gate
+  # but must be flagged: the call was not contained to the scratch directory.
+  t <- sandbox_tool(
+    function() "wrote elsewhere", name = "writer", description = "d",
+    mode = "read_only", allow_paths = dir,
+    executor = function(fn, args, workdir, timeout_s)
+      list(stdout = "", result = do.call(fn, args),
+           files = stats::setNames("cafef00d", target),
+           status = "ok", error = NA))
+  out <- t$fn()
+  flagged <- attr(out, "sandbox")$outside_workdir
+  expect_true(target %in% flagged)
+  expect_true(dir %in% flagged)      # the sanction itself is visible too
+
+  # A call whose only writes stay under the workdir flags nothing.
+  t2 <- sandbox_tool(
+    function() "contained", name = "writer2", description = "d",
+    mode = "tempdir",
+    executor = function(fn, args, workdir, timeout_s) {
+      f <- file.path(workdir, "inside.txt"); writeLines("x", f)
+      list(stdout = "", result = do.call(fn, args),
+           files = f, status = "ok", error = NA)
+    })
+  out2 <- t2$fn()
+  expect_identical(attr(out2, "sandbox")$outside_workdir, character(0))
+})
+
 test_that("container mode without an executor errors about the executor", {
   expect_error(
     sandbox_tool(function() 1, name = "c", description = "d", mode = "container"),

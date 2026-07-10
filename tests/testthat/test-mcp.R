@@ -1,4 +1,5 @@
 # Stage 4: the governed MCP client. Fully offline via the transport= seam.
+# MCP has only tools/list and tools/call; the rug-pull re-check re-lists.
 
 # A canned server: a read-only search tool and a write-like send tool.
 fake_transport <- function(state = new.env()) {
@@ -15,7 +16,6 @@ fake_transport <- function(state = new.env()) {
                                 properties = list(to = list(type = "string"),
                                                   body = list(type = "string"))),
              annotations = list(destructiveHint = TRUE)))),
-      "tools/get" = list(inputSchema = state$search_schema),
       "tools/call" = list(content = list(list(type = "text",
         text = paste0("result for ", params$name)))),
       list())
@@ -48,8 +48,6 @@ test_that("read-only refuses an unannotated tool", {
         description = "Look something up.",
         inputSchema = list(type = "object",
                            properties = list(x = list(type = "string")))))),
-      "tools/get" = list(inputSchema = list(type = "object",
-                                            properties = list(x = list(type = "string")))),
       "tools/call" = list(content = list(list(type = "text", text = "ok"))),
       list())
   }
@@ -66,8 +64,6 @@ test_that("read-only refuses an unannotated tool", {
         inputSchema = list(type = "object",
                            properties = list(x = list(type = "string"))),
         annotations = list(readOnlyHint = TRUE)))),
-      "tools/get" = list(inputSchema = list(type = "object",
-                                            properties = list(x = list(type = "string")))),
       "tools/call" = list(content = list(list(type = "text", text = "ok"))),
       list())
   }
@@ -100,17 +96,20 @@ test_that("schema drift (rug pull) is detected and refused", {
 })
 
 test_that("schema pinning fails closed when re-verification is impossible", {
-  # A transport that lists a clean read-only tool but ERRORS on tools/get. The
+  clean_listing <- list(tools = list(list(
+    name = "search", description = "Search the docs.",
+    inputSchema = list(type = "object",
+                       properties = list(q = list(type = "string"))),
+    annotations = list(readOnlyHint = TRUE))))
+
+  # A server whose FIRST tools/list is clean but that ERRORS on re-listing. The
   # re-check cannot confirm the tool is unchanged, so it must refuse (fail
   # closed) rather than proceed.
+  n1 <- 0L
   noverify_tr <- function(method, params) {
     switch(method,
-      "tools/list" = list(tools = list(list(
-        name = "search", description = "Search the docs.",
-        inputSchema = list(type = "object",
-                           properties = list(q = list(type = "string"))),
-        annotations = list(readOnlyHint = TRUE)))),
-      "tools/get" = stop("tools/get unavailable"),
+      "tools/list" = { n1 <<- n1 + 1L
+        if (n1 > 1L) stop("re-listing unavailable") else clean_listing },
       "tools/call" = list(content = list(list(type = "text", text = "ok"))),
       list())
   }
@@ -118,27 +117,40 @@ test_that("schema pinning fails closed when re-verification is impossible", {
   search <- Find(function(t) t$name == "search", tools)
   expect_error(search$fn(q = "hi"), class = "llmragent_mcp_schema_drift")
 
-  # A transport whose tools/get returns NO schema also fails closed.
+  # A server whose re-listing reports the tool WITHOUT a schema also fails closed.
+  n2 <- 0L
   noschema_tr <- function(method, params) {
     switch(method,
-      "tools/list" = list(tools = list(list(
-        name = "search", description = "Search the docs.",
-        inputSchema = list(type = "object",
-                           properties = list(q = list(type = "string"))),
-        annotations = list(readOnlyHint = TRUE)))),
-      "tools/get" = list(),                       # neither inputSchema nor input_schema
+      "tools/list" = { n2 <<- n2 + 1L
+        if (n2 > 1L) list(tools = list(list(name = "search",
+                                            description = "Search the docs.")))
+        else clean_listing },
       "tools/call" = list(content = list(list(type = "text", text = "ok"))),
       list())
   }
   tools2 <- mcp_tools(list(url = "x"), transport = noschema_tr, pin_schemas = TRUE)
   search2 <- Find(function(t) t$name == "search", tools2)
   expect_error(search2$fn(q = "hi"), class = "llmragent_mcp_schema_drift")
+
+  # A server whose re-listing DROPS the tool entirely also fails closed.
+  n3 <- 0L
+  dropped_tr <- function(method, params) {
+    switch(method,
+      "tools/list" = { n3 <<- n3 + 1L
+        if (n3 > 1L) list(tools = list()) else clean_listing },
+      "tools/call" = list(content = list(list(type = "text", text = "ok"))),
+      list())
+  }
+  tools3 <- mcp_tools(list(url = "x"), transport = dropped_tr, pin_schemas = TRUE)
+  search3 <- Find(function(t) t$name == "search", tools3)
+  expect_error(search3$fn(q = "hi"), class = "llmragent_mcp_schema_drift")
 })
 
 test_that("schema pinning trips when the description or annotations change", {
   # The full signature is pinned, not just the input schema: a server that keeps
   # the schema but rewrites the description (or flips readOnlyHint) after listing
-  # must still trip the drift check. Here tools/get reports the mutated values.
+  # must still trip the drift check. Here the re-listing reports the mutated
+  # description.
   st <- new.env()
   st$desc <- "Search the docs."
   drift_tr <- function(method, params) {
@@ -147,8 +159,6 @@ test_that("schema pinning trips when the description or annotations change", {
       "tools/list" = list(tools = list(list(
         name = "search", description = st$desc, inputSchema = schema,
         annotations = list(readOnlyHint = TRUE)))),
-      "tools/get" = list(inputSchema = schema, description = st$desc,
-                         annotations = list(readOnlyHint = TRUE)),
       "tools/call" = list(content = list(list(type = "text", text = "ok"))),
       list())
   }
@@ -168,8 +178,6 @@ test_that("a poisoned description is flagged and the tool downgraded", {
         inputSchema = list(type = "object",
                            properties = list(x = list(type = "string"))),
         annotations = list(readOnlyHint = TRUE)))),
-      "tools/get" = list(inputSchema = list(type = "object",
-                                            properties = list(x = list(type = "string")))),
       "tools/call" = list(content = list(list(type = "text", text = "ok"))),
       list())
   }

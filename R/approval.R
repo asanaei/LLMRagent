@@ -23,7 +23,22 @@
                               convo = NULL, history = NULL,
                               agg = NULL) {
   is_anthropic <- identical(config$provider, "anthropic")
+  # This loop speaks exactly two tool protocols: Anthropic's and the
+  # OpenAI-compatible one. Treating any other provider as OpenAI-shaped would
+  # corrupt the conversation (e.g. Gemini), so refuse clearly, matching
+  # LLMR::call_llm_tools()'s own refusal.
+  if (!is_anthropic && identical(config$provider, "gemini")) {
+    stop("Approval-gated tools support OpenAI-compatible and Anthropic ",
+         "providers; the pausable tool loop does not yet drive the Gemini ",
+         "tool protocol.", call. = FALSE)
+  }
   tool_index <- stats::setNames(tools, vapply(tools, `[[`, "", "name"))
+  # The agent's cumulative tool-call ceiling, enforced inside this loop too
+  # (LLMR's loop enforces it via max_tool_calls; this loop must not be a
+  # bypass). Prior exchanges' spend is the agent's counter; this exchange's is
+  # agg$tool_calls, which resume_run() carries across a pause.
+  budget_max <- if (inherits(agent, "Agent")) agent$budget$max_tool_calls else Inf
+  prior_tool_calls <- if (inherits(agent, "Agent")) agent$usage()$tool_calls else 0L
   # provider-shaped tool defs on the config
   cfg <- config
   mp <- cfg$model_params %||% list()
@@ -64,6 +79,18 @@
 
     result_blocks <- list()
     for (cl in calls) {
+      # Cumulative budget check BEFORE executing (or suspending on) the next
+      # call, mirroring assert_budget()'s fail-closed order. The condition also
+      # carries llmr_tool_limit so call_model()'s handler accounts the spend.
+      if (prior_tool_calls + agg$tool_calls >= budget_max) {
+        rlang::abort(
+          message = sprintf(
+            "Agent '%s' budget exceeded: max_tool_calls (%d tool calls made).",
+            if (inherits(agent, "Agent")) agent$name else "?",
+            prior_tool_calls + agg$tool_calls),
+          class = c("llmragent_budget_error", "llmr_tool_limit",
+                    "error", "condition"))
+      }
       tool <- tool_index[[cl$name]]
       gov <- if (is.null(tool)) NULL else .tool_governance(tool)
       if (!is.null(gov) && isTRUE(gov$requires_approval)) {
@@ -164,7 +191,11 @@
     list(name = agent$name, persona = agent$persona, config = agent$config,
          memory = agent$memory$state(), agent_id = agent$id(),
          usage = as.list(agent$usage()[1, c("calls","tokens_sent","tokens_received","tool_calls")]),
-         budget = agent$budget, spans = agent$internal_spans())
+         budget = agent$budget, spans = agent$internal_spans(),
+         # Guardrails travel with the checkpoint (closures serialize through
+         # RDS, like the tools); dropping them would let a resume silently
+         # bypass the agent's policy.
+         guardrails = agent$guardrail_set())
   } else NULL
   structure(list(
     schema = "llmragent_checkpoint/1",
@@ -272,7 +303,8 @@ resume_run <- function(checkpoint, ...) {
   if (!is.null(st)) {
     mem <- memory_restore(st$memory)
     ag <- agent(name = st$name, config = st$config, persona = st$persona,
-                tools = tools, memory = mem, budget = st$budget %||% budget())
+                tools = tools, memory = mem, budget = st$budget %||% budget(),
+                guardrails = st$guardrails)
     ag$restore_accounting(usage = st$usage, spans = st$spans, agent_id = st$agent_id)
   }
 
@@ -294,19 +326,61 @@ resume_run <- function(checkpoint, ...) {
       } else .native_exec(tool, list(name = pend$name, arguments = args, id = pend$id))
     })
 
-  # splice the approved result and continue the native loop from the checkpoint
+  # Splice the decided result and continue the native loop from the checkpoint.
+  # The checkpoint's result_blocks (the ungated calls already executed in this
+  # turn) and remaining (the turn's calls after the gated one) must both be
+  # restored: the assistant turn already names every call id, so a resume that
+  # answered only the gated one would send a conversation the provider rejects.
+  is_anthropic <- isTRUE(checkpoint$is_anthropic)
   cl <- list(id = pend$id, name = pend$name, arguments = pend$arguments)
-  result_blocks <- list()
+  result_blocks <- checkpoint$result_blocks %||% list()
   convo <- checkpoint$convo
-  rb <- .native_append_result(result_blocks, convo, cl, result, checkpoint$is_anthropic)
-  if (!checkpoint$is_anthropic) convo <- attr(rb, "convo") else
-    convo <- append(convo, list(list(role = "user",
-      content = list(list(type = "tool_result", tool_use_id = cl$id, content = result)))))
+  # An edited call records the arguments that actually ran, not the originals.
+  args_used <- if (identical(dec$decision, "edit")) dec$edit else pend$arguments
+  rb <- .native_append_result(result_blocks, convo, cl, result, is_anthropic)
+  if (!is_anthropic) convo <- attr(rb, "convo") else result_blocks <- rb
   history <- c(checkpoint$history, list(list(round = checkpoint$round,
-    name = pend$name, arguments = pend$arguments, result = result)))
+    name = pend$name, arguments = args_used, result = result)))
   agg <- checkpoint$agg; agg$tool_calls <- agg$tool_calls + 1L
 
-  tools_for_loop <- if (!is.null(ag)) ag$tools else list()
+  # Work through the rest of the suspended turn's calls (remaining[[1]] is the
+  # gated call just decided). An ungated one executes now; a second gated one
+  # suspends again with an updated checkpoint, exactly as the loop would.
+  rest <- checkpoint$remaining %||% list()
+  if (length(rest) > 1L) rest <- rest[-1L] else rest <- list()
+  for (i in seq_along(rest)) {
+    cl2 <- rest[[i]]
+    tool2 <- find_in(cl2$name)
+    gov2 <- if (is.null(tool2)) NULL else .tool_governance(tool2)
+    if (!is.null(gov2) && isTRUE(gov2$requires_approval)) {
+      cp2 <- .make_checkpoint(agent = ag, config = checkpoint$config,
+                              tools = tools, convo = convo, history = history,
+                              agg = agg, round = checkpoint$round,
+                              pending = cl2, is_anthropic = is_anthropic,
+                              max_rounds = checkpoint$max_rounds,
+                              tries = checkpoint$tries,
+                              wait_seconds = checkpoint$wait_seconds,
+                              result_blocks = result_blocks,
+                              remaining = rest[i:length(rest)])
+      rlang::abort(
+        message = sprintf("Tool '%s' requires human approval; run paused. Use approve_tool_call() then resume_run().", cl2$name),
+        class = c("llmragent_pending_approval", "condition"),
+        checkpoint = cp2)
+    }
+    result2 <- .native_exec(tool2, cl2)
+    agg$tool_calls <- agg$tool_calls + 1L
+    history <- c(history, list(list(round = checkpoint$round, name = cl2$name,
+                                    arguments = cl2$arguments, result = result2)))
+    rb <- .native_append_result(result_blocks, convo, cl2, result2, is_anthropic)
+    if (!is_anthropic) convo <- attr(rb, "convo") else result_blocks <- rb
+  }
+  if (is_anthropic && length(result_blocks)) {
+    convo <- append(convo, list(list(role = "user", content = result_blocks)))
+  }
+
+  # Even without a rebuilt agent (no agent_state), the serialized tools must
+  # drive the continuation, or every later tool call would be "unknown tool".
+  tools_for_loop <- if (!is.null(ag)) ag$tools else tools
   resp <- .native_tool_loop(
     config = checkpoint$config, messages = NULL, tools = tools_for_loop,
     agent = ag, max_rounds = checkpoint$max_rounds, tries = checkpoint$tries,

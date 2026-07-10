@@ -103,6 +103,15 @@ diagnostics.agent_run <- function(x, ...) {
   )
 }
 
+# A bare Agent dispatches here (its class is c("Agent", "R6"), not agent_run);
+# the run view is materialized by the same as_agent_run() the agent_run method
+# opens with, so the two agree row for row.
+#' @rdname diagnostics.agent_run
+#' @exportS3Method LLMR::diagnostics Agent
+diagnostics.Agent <- function(x, ...) {
+  diagnostics.agent_run(as_agent_run(x), ...)
+}
+
 # A zero-call usage row, shaped like LLMR::llm_usage() output, for empty runs.
 #' @keywords internal
 #' @noRd
@@ -211,6 +220,13 @@ report.agent_run <- function(x, ...) {
   if (!is.null(note)) body <- c(body, "", note)
 
   structure(body, class = "agent_report")
+}
+
+# A bare Agent dispatches here; delegate through the run view.
+#' @rdname report.agent_run
+#' @exportS3Method LLMR::report Agent
+report.Agent <- function(x, ...) {
+  report.agent_run(as_agent_run(x), ...)
 }
 
 # Compact one-line description of how the run was orchestrated, from its design.

@@ -5,9 +5,14 @@
 
 #' Save an agent to disk
 #'
-#' Writes the agent's name, persona, config, memory contents, and trace to an
-#' RDS file. Tools are functions and are not serialized; re-attach them at
-#' load time via `load_agent(tools = ...)`.
+#' Writes the agent's name, persona, config, memory contents, guardrails, and
+#' trace to an RDS file. Tools are functions and are not serialized; re-attach
+#' them at load time via `load_agent(tools = ...)`. Guardrails are serialized
+#' (their check functions travel through RDS) and restored automatically.
+#'
+#' When the config carries a literal API key (one passed as a string rather
+#' than the usual environment-variable reference), saving warns: the key would
+#' be written to disk inside the RDS file.
 #'
 #' @param x An [Agent].
 #' @param path File path (`.rds`).
@@ -27,6 +32,12 @@
 #' @export
 save_agent <- function(x, path) {
   stopifnot(inherits(x, "Agent"))
+  if (inherits(x$config$api_key, "llmr_secret_literal")) {
+    warning("This agent's config carries a literal API key, which will be ",
+            "written to disk inside the saved file. Prefer a config built ",
+            "from an environment variable (the default), which saves only ",
+            "the variable's name.", call. = FALSE)
+  }
   state <- list(
     llmragent_version = as.character(utils::packageVersion("LLMRagent")),
     name = x$name,
@@ -37,7 +48,8 @@ save_agent <- function(x, path) {
     agent_id = x$id(),
     usage = as.list(x$usage()[1, c("calls", "tokens_sent",
                                    "tokens_received", "tool_calls")]),
-    budget = x$budget
+    budget = x$budget,
+    guardrails = x$guardrail_set()
   )
   saveRDS(state, path)
   invisible(path)
@@ -46,7 +58,7 @@ save_agent <- function(x, path) {
 #' Load an agent from disk
 #'
 #' Restores an agent saved with [save_agent()]: same persona, config, memory
-#' contents, budget, and accounting. Because the config holds an
+#' contents, budget, guardrails, and accounting. Because the config holds an
 #' environment-variable reference rather than a key, the loaded agent works
 #' immediately wherever that variable is set. Call, token, and tool counters
 #' carry over, so a budget keeps binding across sessions; the wall-clock
@@ -66,7 +78,8 @@ load_agent <- function(path, tools = list(), embed_config = NULL) {
   mem <- memory_restore(state$memory, embed_config = embed_config)
   out <- agent(name = state$name, config = state$config,
                persona = state$persona, tools = tools, memory = mem,
-               budget = state$budget %||% budget())
+               budget = state$budget %||% budget(),
+               guardrails = state$guardrails)
   out$restore_accounting(usage = state$usage, spans = state$spans,
                          agent_id = state$agent_id)
   out

@@ -203,6 +203,10 @@ focus_group <- function(moderator, participants, topic,
                     properties = list(questions = list(
                       type = "array", items = list(type = "string"))),
                     required = list("questions")), ...)
+    if (is.null(drafted) || !length(drafted$questions)) {
+      stop("The moderator's question drafting returned no parseable questions; ",
+           "supply `questions =` explicitly (or retry).", call. = FALSE)
+    }
     questions <- vapply(drafted$questions, as.character, character(1))
   }
 
@@ -333,6 +337,10 @@ interview <- function(interviewer, respondent, topic,
                     properties = list(questions = list(
                       type = "array", items = list(type = "string"))),
                     required = list("questions")), ...)
+    if (is.null(drafted) || !length(drafted$questions)) {
+      stop("The interviewer's question drafting returned no parseable questions; ",
+           "supply `questions =` explicitly (or retry).", call. = FALSE)
+    }
     questions <- vapply(drafted$questions, as.character, character(1))
   }
 
@@ -434,7 +442,8 @@ as_agent_run.agent_interview <- function(x, ...) {
 #'
 #' @param agents A list of [Agent]s.
 #' @param proposal The proposal under deliberation (character scalar).
-#' @param rounds Discussion rounds before the vote (default 2).
+#' @param rounds Discussion rounds before the vote (default 2). `rounds = 0`
+#'   skips the discussion: the panel votes on the bare proposal.
 #' @param options Vote options. Default `c("yes", "no", "abstain")`.
 #' @param msg_mode Message construction, `"roleflip"` (default) or `"flat"`;
 #'   `NULL` uses `getOption("LLMRagent.msg_mode")`. See [conversation()].
@@ -479,7 +488,8 @@ deliberate <- function(agents, proposal, rounds = 2L,
   transcript <- tibble::tibble(turn = integer(0), round = integer(0),
                                speaker = character(0), text = character(0))
   t <- 0L
-  for (r in seq_len(max(1L, as.integer(rounds)))) {
+  # rounds = 0 means no discussion: the panel goes straight to the vote.
+  for (r in seq_len(max(0L, as.integer(rounds)))) {
     for (i in seq_along(agents)) {
       spk <- agents[[i]]
       sys <- paste(c(
