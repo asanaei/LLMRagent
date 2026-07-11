@@ -176,6 +176,11 @@ print.agent_leakage_report <- function(x, ...) {
   if (isTRUE(x$clean)) {
     cat("  No shared agents, memory, or state detected across cells.\n")
   } else {
+    # Summarize the leak kinds in plain text so their full names are always
+    # shown; the tibble below abbreviates columns to the console width, which
+    # can truncate a kind like "shared_agent_instance" on a narrow terminal.
+    counts <- table(x$leaks$kind)
+    for (k in names(counts)) cat(sprintf("  %s: %d\n", k, counts[[k]]))
     print(x$leaks)
   }
   invisible(x)

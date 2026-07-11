@@ -31,7 +31,7 @@ RoxygenNote: 7.3.3
 Depends:
     R (>= 4.2)
 Imports:
-    LLMR (>= 0.8.9),
+    LLMR (>= 0.8.10),
     R6,
     tibble,
     rlang,
