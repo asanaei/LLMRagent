@@ -4,26 +4,9 @@ Title: Reproducible Language-Model Agents for Research
 Version: 0.8.0
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
-Description: Build language-model agents in R on top of the 'LLMR' package. The
-  run object, manifest, archive, and tool-policy checks carry reproducibility and
-  governance through the workflow. An agent works
-  from a persona, calls native R tools, keeps memory, and stays within a
-  declared budget. Several agents converse over a shared transcript under a
-  turn-taking policy, which supplies presets for debates, focus groups,
-  interviews, and deliberations with votes; factorial experiments over those
-  designs run in parallel and return tidy results. Every run converts to one
-  object that exposes utterance, event, call, tool, and state views, a study
-  manifest of content hashes, and a sealed replication archive whose call log
-  reads back through 'LLMR'. Governance covers declared tool side effects,
-  guardrails on inputs, outputs, and tool results, human approval gates that
-  pause and resume, and diagnostics for state leakage. Validity helpers provide
-  robustness checks across prompt and model perturbations, calibration with
-  design-based and prediction-powered estimation from imperfect labels,
-  anti-essentialist persona checks, and claim types that restrict
-  population-level language unless calibration is attached. A small workflow runtime adds checkpoint, resume, fork,
-  and replay. Optional layers provide a governed Model Context Protocol client,
-  sandboxed tool execution, social-simulation scaffolding, and an HTML run
-  inspector.
+Description: Large language model agents as governed research instruments,
+  built on 'LLMR'. An agent's tools and budgets are declared up front, and
+  every run leaves a hash-sealed record whose integrity a reviewer can verify.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
