@@ -8,14 +8,12 @@
 <!-- badges: end -->
 
 Language-model **agents for R**, built on
-[LLMR](https://github.com/asanaei/LLMR). An agent here is a model and a persona
-that carries memory, calls tools natively, and works under a budget it cannot
-overspend. Agents consult one another and hold conversations over a shared
-transcript. A factorial design runs hundreds of them at once. Each run records
-its own provenance and seals into a replication archive, while the governance
-and validity tooling stays in reserve for studies that need it. The package
-suits social scientists running agent-based studies, and anyone in R who needs
-an agent with memory, tools, and a budget it keeps to.
+[LLMR](https://github.com/asanaei/LLMR). An agent combines a model configuration
+and persona with memory, tools, and a declared budget. Agents consult one
+another and hold conversations over a shared transcript. `agent_experiment()`
+runs factorial designs over conditions and replications. Each run records calls
+and tool use in a trace that can be stored in a replication archive. The
+package is intended for agent-based studies in R.
 
 ```r
 # install.packages("remotes")
@@ -48,9 +46,9 @@ ada$usage()                                    # calls, tokens, tool calls, seco
   recorded as something the model said.
 
 **Agents calling agents.** `agent_as_tool(specialist)` turns an agent into
-a tool any other agent can consult. Supervisors route work to specialists at
-their own discretion; each consultation lands on the specialist's own meter
-and respects its own budget.
+a tool any other agent can consult. The calling agent chooses when to invoke
+the specialist. Each consultation is recorded in the specialist's usage and
+counts against its budget.
 
 ```r
 stat <- agent("Stat", cfg, persona = "A PhD statistician. Precise about assumptions.")
@@ -63,10 +61,10 @@ lead$chat("Could falling crime cause rising policing budgets, rather than vice v
 specialists (extract, then verify, then rewrite), keeping every intermediate
 product in a tidy `steps` frame.
 
-**Multi-agent conversations.** `conversation()` runs agents over a shared,
-speaker-attributed transcript (everyone sees the full dialogue), with
-round-robin, random, or moderator-chosen turn order. Ready-made study
-formats, each returning analysis-ready tibbles:
+**Multi-agent conversations.** `conversation()` records each speaker's turns
+in a shared transcript that all agents receive. Turn order can be round-robin,
+random, or selected by a moderator. The following study formats return data
+frames for analysis:
 
 | Preset | Returns |
 |---|---|
@@ -76,13 +74,13 @@ formats, each returning analysis-ready tibbles:
 | `deliberate(agents, proposal)` | discussion transcript + private structured votes + tally |
 
 **Agent experiments.** `agent_experiment(design, run_fn, reps)` runs a
-factorial design (conditions x replications), sequentially or in parallel,
-with per-cell error capture, returning one tidy results frame. Combine with
-`LLMR::llm_log_enable()` for a per-call audit file of the entire study.
+factorial design over conditions and replications. It can run sequentially or
+in parallel and records errors by design cell in the returned data frame.
+Combine with `LLMR::llm_log_enable()` for a per-call audit file of the entire
+study.
 
-These primitives combine. As one worked example, `think_harder()` puts a strong
-model and a pool of cheap ones through a plan, work, and synthesize loop. It is
-built from the pieces above, not a separate idea.
+`think_harder()` composes these functions by using one model for planning and
+synthesis and a pool of less expensive models for the intervening work.
 
 ## A small multi-agent example
 
@@ -110,26 +108,19 @@ All articles and reference: <https://asanaei.github.io/LLMRagent/>
 
 ## Relation to LLMR
 
-[LLMR](https://asanaei.github.io/LLMR/) supplies the provider layer for more
-than fourteen providers: retries and structured output, native tool execution,
-streaming and parallel calls, audit logging, and the batch APIs. LLMRagent adds
-the agent abstractions on top, so anything configured in LLMR (provider, model,
-sampling, caching, logging) works unchanged here.
+[LLMR](https://asanaei.github.io/LLMR/) supplies the common provider interface
+used by LLMRagent. `agent()` accepts an `LLMR::llm_config()` object, so provider
+and model settings are shared between the packages.
 
 ## The LLMR ecosystem
 
 LLMRagent is one of a family of packages for LLM-assisted research built on
 [LLMR](https://asanaei.github.io/LLMR/), the shared provider layer.
-[LLMRcontent](https://asanaei.github.io/LLMRcontent/) is the measurement
-package: codebook-first coding, validation against held-out human labels,
-robustness audits, and replication archives built from the audit log.
-[LLMRpanel](https://asanaei.github.io/LLMRpanel/) administers survey instruments
-to panels of model personas for design-stage work, and marks its output
-uncalibrated until it is compared against a human benchmark.
-[FocusGroup](https://asanaei.github.io/FocusGroup/) is the dedicated package for
-moderated discussion. LLMRagent's `focus_group()` preset runs a session in a few
-lines; use the FocusGroup package for a richer implementation, with desire-based
-turn-taking and the turn-level dynamics studied in their own right. The
+[LLMRcontent](https://asanaei.github.io/LLMRcontent/) codes text from a codebook
+and evaluates the resulting labels against held-out human labels.
+[LLMRpanel](https://asanaei.github.io/LLMRpanel/) administers survey and
+experimental instruments to panels of model personas for design-stage studies.
+[FocusGroup](https://asanaei.github.io/FocusGroup/) runs simulated moderated
+discussions and supports experiments on how one turn changes the next. The
 [ecosystem page](https://asanaei.github.io/LLMR-ecosystem/) introduces the whole
 family.
-
