@@ -61,5 +61,5 @@ statistician$usage()   # the consultation is on the specialist's meter
 }
 }
 \seealso{
-\code{\link[=agent]{agent()}}, \code{\link[=agent_pipeline]{agent_pipeline()}}, \code{\link[=think_harder]{think_harder()}}
+\code{\link[=agent]{agent()}}, \code{\link[=agent_pipeline]{agent_pipeline()}}, \code{\link[=agent_fanout_synthesis]{agent_fanout_synthesis()}}
 }

@@ -8,13 +8,15 @@
 # the agent, splices the approved (or denied/edited) result, and continues.
 # This is the R-native equivalent of PydanticAI-style deferred tools.
 
-#' Run a native, pausable tool loop (used when a tool requires approval)
+#' Run a native, pausable tool loop
 #'
 #' Built on `LLMR::tool_calls()` and `LLMR::call_llm_robust()` so it inherits
 #' provider handling. Mirrors `LLMR::call_llm_tools()`'s accounting: it returns
 #' the final `llmr_response` with `tool_history` and `tool_loop` attributes. When
 #' the model calls a tool whose governance marks `requires_approval = TRUE`, the
-#' loop raises `llmragent_pending_approval` carrying a checkpoint.
+#' loop raises `llmragent_pending_approval` carrying a checkpoint. The same
+#' pause points let agents enforce tool guardrails before execution and budgets
+#' before each model round.
 #'
 #' @keywords internal
 #' @noRd
@@ -28,17 +30,13 @@
   # corrupt the conversation (e.g. Gemini), so refuse clearly, matching
   # LLMR::call_llm_tools()'s own refusal.
   if (!is_anthropic && identical(config$provider, "gemini")) {
-    stop("Approval-gated tools support OpenAI-compatible and Anthropic ",
-         "providers; the pausable tool loop does not yet drive the Gemini ",
+    stop("Native tool loops support OpenAI-compatible and Anthropic ",
+         "providers; this loop does not yet drive the Gemini ",
          "tool protocol.", call. = FALSE)
   }
   tool_index <- stats::setNames(tools, vapply(tools, `[[`, "", "name"))
-  # The agent's cumulative tool-call ceiling, enforced inside this loop too
-  # (LLMR's loop enforces it via max_tool_calls; this loop must not be a
-  # bypass). Prior exchanges' spend is the agent's counter; this exchange's is
-  # agg$tool_calls, which resume_run() carries across a pause.
+  # The agent's cumulative tool-call ceiling is enforced inside this loop too.
   budget_max <- if (inherits(agent, "Agent")) agent$budget$max_tool_calls else Inf
-  prior_tool_calls <- if (inherits(agent, "Agent")) agent$usage()$tool_calls else 0L
   # provider-shaped tool defs on the config
   cfg <- config
   mp <- cfg$model_params %||% list()
@@ -47,15 +45,27 @@
 
   convo <- convo %||% .native_normalize(messages)
   history <- history %||% list()
-  agg <- agg %||% list(model_calls = 0L, sent = 0L, rec = 0L, tool_calls = 0L, saw = FALSE)
+  agg <- agg %||% list(
+    model_calls = 0L, sent = 0L, rec = 0L, tool_calls = 0L, saw = FALSE,
+    accounted_model_calls = 0L, accounted_sent = 0L, accounted_rec = 0L,
+    accounted_tool_calls = 0L)
+  if (inherits(agent, "Agent")) {
+    agg <- agent$.__enclos_env__$private$account_pending_loop(agg)
+  }
 
   for (round in seq_len(max_rounds)) {
+    if (inherits(agent, "Agent")) {
+      agent$.__enclos_env__$private$assert_budget()
+    }
     resp <- LLMR::call_llm_robust(cfg, convo, tries = tries,
                                   wait_seconds = wait_seconds, verbose = FALSE)
     agg$model_calls <- agg$model_calls + 1L
     u <- LLMR::tokens(resp)
     if (length(u$sent) == 1L && !is.na(u$sent)) { agg$sent <- agg$sent + as.integer(u$sent); agg$saw <- TRUE }
     if (length(u$rec) == 1L && !is.na(u$rec)) { agg$rec <- agg$rec + as.integer(u$rec); agg$saw <- TRUE }
+    if (inherits(agent, "Agent")) {
+      agg <- agent$.__enclos_env__$private$account_pending_loop(agg)
+    }
 
     calls <- LLMR::tool_calls(resp)
     if (!length(calls)) {
@@ -65,7 +75,11 @@
         model_calls = agg$model_calls,
         sent = if (agg$saw) agg$sent else NA_integer_,
         rec = if (agg$saw) agg$rec else NA_integer_,
-        tool_calls = agg$tool_calls)
+        tool_calls = agg$tool_calls,
+        accounted_model_calls = agg$accounted_model_calls %||% 0L,
+        accounted_sent = agg$accounted_sent %||% 0L,
+        accounted_rec = agg$accounted_rec %||% 0L,
+        accounted_tool_calls = agg$accounted_tool_calls %||% 0L)
       return(resp)
     }
 
@@ -79,17 +93,17 @@
 
     result_blocks <- list()
     for (cl in calls) {
-      # Cumulative budget check BEFORE executing (or suspending on) the next
-      # call, mirroring assert_budget()'s fail-closed order. The condition also
-      # carries llmr_tool_limit so call_model()'s handler accounts the spend.
-      if (prior_tool_calls + agg$tool_calls >= budget_max) {
-        rlang::abort(
-          message = sprintf(
-            "Agent '%s' budget exceeded: max_tool_calls (%d tool calls made).",
-            if (inherits(agent, "Agent")) agent$name else "?",
-            prior_tool_calls + agg$tool_calls),
-          class = c("llmragent_budget_error", "llmr_tool_limit",
-                    "error", "condition"))
+      tools_used <- if (inherits(agent, "Agent")) {
+        agent$usage()$tool_calls
+      } else {
+        agg$tool_calls
+      }
+      if (tools_used >= budget_max) {
+        if (inherits(agent, "Agent")) {
+          agent$.__enclos_env__$private$budget_fail(
+            "max_tool_calls", sprintf("%d tool calls made", tools_used))
+        }
+        stop("Tool-call budget exceeded.", call. = FALSE)
       }
       tool <- tool_index[[cl$name]]
       gov <- if (is.null(tool)) NULL else .tool_governance(tool)
@@ -108,8 +122,15 @@
           checkpoint = cp)
       }
       # ungated tool inside the gated loop: execute now
+      if (inherits(agent, "Agent")) {
+        agent$.__enclos_env__$private$run_tool_guardrails(
+          cl$name, cl$arguments, phase = "pre")
+      }
       result <- .native_exec(tool, cl)
       agg$tool_calls <- agg$tool_calls + 1L
+      if (inherits(agent, "Agent")) {
+        agg <- agent$.__enclos_env__$private$account_pending_loop(agg)
+      }
       history[[length(history) + 1L]] <- list(round = round, name = cl$name,
                                               arguments = cl$arguments, result = result)
       result_blocks <- .native_append_result(result_blocks, convo, cl, result,
@@ -126,7 +147,11 @@
   attr(resp, "tool_history") <- .native_history(history)
   attr(resp, "tool_loop") <- list(model_calls = agg$model_calls,
     sent = if (agg$saw) agg$sent else NA_integer_,
-    rec = if (agg$saw) agg$rec else NA_integer_, tool_calls = agg$tool_calls)
+    rec = if (agg$saw) agg$rec else NA_integer_, tool_calls = agg$tool_calls,
+    accounted_model_calls = agg$accounted_model_calls %||% 0L,
+    accounted_sent = agg$accounted_sent %||% 0L,
+    accounted_rec = agg$accounted_rec %||% 0L,
+    accounted_tool_calls = agg$accounted_tool_calls %||% 0L)
   resp
 }
 
@@ -261,12 +286,14 @@ approve_tool_call <- function(checkpoint, decision = c("approve", "reject", "edi
 #' @export
 human_gate <- function(x, prompt = NULL) {
   if (inherits(x, "llmr_tool")) {
-    gov <- attr(x, "governance") %||% list(side_effects = "external",
+    gov <- .tool_governance(x) %||% list(side_effects = "external",
       requires_approval = FALSE, timeout_s = NULL, max_calls = Inf, max_bytes = Inf,
       state = local({ e <- new.env(parent = emptyenv()); e$n_calls <- 0L; e }))
     gov$requires_approval <- TRUE
     gov$approval_prompt <- prompt
-    attr(x, "governance") <- gov
+    x$governance <- gov
+    attr(x, "governance") <- NULL
+    class(x) <- unique(c("agent_tool", class(x)))
     return(x)
   }
   structure(list(name = as.character(x)[1], prompt = prompt),
@@ -283,8 +310,9 @@ human_gate <- function(x, prompt = NULL) {
 #' @param checkpoint A `llmragent_checkpoint` with a decision recorded by
 #'   [approve_tool_call()].
 #' @param ... Reserved.
-#' @return The final reply text (character scalar). The rebuilt agent is
-#'   attached as `attr(x, "agent")`.
+#' @return An object of class `agent_resume_result` with `text` (the final
+#'   reply), `agent` (the rebuilt agent, or `NULL`), and `checkpoint` (the
+#'   checkpoint that was resumed).
 #' @seealso [human_gate()], [approve_tool_call()]
 #' @export
 resume_run <- function(checkpoint, ...) {
@@ -310,6 +338,10 @@ resume_run <- function(checkpoint, ...) {
 
   pend <- checkpoint$pending
   dec <- checkpoint$decision
+  agg <- checkpoint$agg
+  if (!is.null(ag)) {
+    agg <- ag$.__enclos_env__$private$account_pending_loop(agg)
+  }
   # Resolve the pending tool's result per the decision. The gated tool lives in
   # the checkpoint's tool list (and on the rebuilt agent).
   find_in <- function(name) {
@@ -321,6 +353,10 @@ resume_run <- function(checkpoint, ...) {
     {  # approve or edit
       args <- if (identical(dec$decision, "edit")) dec$edit else pend$arguments
       tool <- find_in(pend$name)
+      if (!is.null(ag)) {
+        ag$.__enclos_env__$private$run_tool_guardrails(
+          pend$name, args, phase = "pre")
+      }
       if (is.null(tool)) {
         sprintf("ERROR: tool '%s' is not available on resume; re-attach it to the agent.", pend$name)
       } else .native_exec(tool, list(name = pend$name, arguments = args, id = pend$id))
@@ -341,7 +377,10 @@ resume_run <- function(checkpoint, ...) {
   if (!is_anthropic) convo <- attr(rb, "convo") else result_blocks <- rb
   history <- c(checkpoint$history, list(list(round = checkpoint$round,
     name = pend$name, arguments = args_used, result = result)))
-  agg <- checkpoint$agg; agg$tool_calls <- agg$tool_calls + 1L
+  agg$tool_calls <- agg$tool_calls + 1L
+  if (!is.null(ag)) {
+    agg <- ag$.__enclos_env__$private$account_pending_loop(agg)
+  }
 
   # Work through the rest of the suspended turn's calls (remaining[[1]] is the
   # gated call just decided). An ungated one executes now; a second gated one
@@ -367,8 +406,15 @@ resume_run <- function(checkpoint, ...) {
         class = c("llmragent_pending_approval", "condition"),
         checkpoint = cp2)
     }
+    if (!is.null(ag)) {
+      ag$.__enclos_env__$private$run_tool_guardrails(
+        cl2$name, cl2$arguments, phase = "pre")
+    }
     result2 <- .native_exec(tool2, cl2)
     agg$tool_calls <- agg$tool_calls + 1L
+    if (!is.null(ag)) {
+      agg <- ag$.__enclos_env__$private$account_pending_loop(agg)
+    }
     history <- c(history, list(list(round = checkpoint$round, name = cl2$name,
                                     arguments = cl2$arguments, result = result2)))
     rb <- .native_append_result(result_blocks, convo, cl2, result2, is_anthropic)
@@ -390,10 +436,21 @@ resume_run <- function(checkpoint, ...) {
     # account the resumed exchange on the rebuilt agent so usage/spans continue
     ag$.__enclos_env__$private$account(resp, resp$duration_s %||% 0)
   }
-  out <- as.character(resp)
-  attr(out, "agent") <- ag
-  attr(out, "checkpoint") <- checkpoint
-  out
+  structure(
+    list(text = as.character(resp), agent = ag, checkpoint = checkpoint),
+    class = "agent_resume_result")
+}
+
+#' @rdname resume_run
+#' @param x An `agent_resume_result` object.
+#' @export
+as.character.agent_resume_result <- function(x, ...) x$text
+
+#' @rdname resume_run
+#' @export
+print.agent_resume_result <- function(x, ...) {
+  cat(x$text, "\n", sep = "")
+  invisible(x)
 }
 
 #' @keywords internal

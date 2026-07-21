@@ -1,11 +1,8 @@
 # manifest.R ------------------------------------------------------------------
-# The study manifest: the identity of a whole agentic run. It ties together the
-# design, personas, tools, workflow, served model ids, parameters, and package
-# versions, with a single hash that changes whenever any of those changes. The
-# manifest records the study's *identity* (the apparatus), not its *outcome*
-# (the sampled replies), mirroring LLMR's request-hash-vs-content distinction.
-# Everything bottoms out in LLMR::llm_hash(), so the value is reproducible
-# across machines and R versions.
+# The study manifest hashes a run's declared specification: design, personas,
+# tool specifications, orchestration metadata, model ids, parameters, and
+# package versions. It records those declared inputs rather than sampled
+# replies. The hash does not identify unrecorded ambient state.
 
 #' Hash a persona
 #'
@@ -30,19 +27,19 @@ hash_persona <- function(persona, name = NULL) {
   LLMR::llm_hash(list(text = as.character(persona %||% ""), name = name))
 }
 
-#' Hash a tool's full specification
+#' Hash a tool's declared specification
 #'
-#' Identity of a tool as a research instrument: its name, description, argument
-#' schema, governance policy (side effects, approval, limits), and its R
-#' function body. Tightening a tool's policy (e.g. lowering `max_calls`) changes
-#' the hash, because it is a different apparatus.
+#' Hashes a tool's name, description, argument schema, governance policy (side
+#' effects, approval, limits), and R function body. Captured values in the
+#' function's enclosing environment are omitted, so this identifies the
+#' declared specification rather than the complete executable apparatus.
 #'
 #' @param tool An [LLMR::llm_tool()] or a governed [agent_tool()].
 #' @return A 64-character SHA-256 hex string.
 #' @seealso [agent_tool()], [agent_manifest()]
 #' @export
 hash_tool_spec <- function(tool) {
-  gov <- attr(tool, "governance")
+  gov <- tool$governance %||% attr(tool, "governance")
   # Hash the RAW user function (deparsed), not the governed wrapper: the wrapper
   # closes over a mutable call-counter environment, so hashing it would make a
   # tool's identity change after it runs. The raw function is the actual
@@ -60,37 +57,21 @@ hash_tool_spec <- function(tool) {
     max_bytes   = if (!is.null(gov)) gov$max_bytes else NULL))
 }
 
-#' Hash a run's control flow (the workflow)
-#'
-#' A kind-specific canonical description of how a run is orchestrated (turn
-#' policy, phase order, pipeline order, experiment design), hashed so two runs
-#' with the same control flow but different sampled text share a workflow hash.
-#'
-#' @param run An object accepted by [as_agent_run()] (or a raw `provenance` list).
-#' @return A 64-character SHA-256 hex string.
-#' @seealso [agent_manifest()]
-#' @export
-hash_workflow <- function(run) {
-  prov <- .as_provenance(run)
-  LLMR::llm_hash(list(kind = prov$kind, design = prov$design))
-}
-
 #' Build the study manifest for a run
 #'
-#' One object tying together the design, personas, tools, workflow, served model
-#' identifiers, generation parameters, and package versions, with a
-#' `manifest_hash` that changes when any of those changes. It does not hash the
-#' transcript or replies (those are outcomes, not identity), so two runs of the
-#' same design with different sampled replies share a `manifest_hash` but differ
-#' in their per-call records.
+#' One object tying together the recorded design, personas, declared tool
+#' specifications, orchestration metadata, served model identifiers, generation
+#' parameters, and package versions. Its `manifest_hash` changes when a hashed
+#' component changes. It does not hash transcripts, replies, or unrecorded
+#' ambient state such as values captured by a tool closure.
 #'
 #' @param run An object accepted by [as_agent_run()] (a chat agent, a
-#'   conversation, a preset, a pipeline, an experiment, a `think_harder()`
-#'   result, or an `agent_run`).
+#'   conversation, a preset, a pipeline, an experiment, an
+#'   `agent_fanout_result`, or an `agent_run`).
 #' @return An object of class `agent_manifest` (a list); see Details. Print shows
 #'   the short hash, kind, models, and headline counts.
-#' @seealso [hash_persona()], [hash_tool_spec()], [hash_workflow()],
-#'   [archive_agent_study()], [LLMR::llm_hash()]
+#' @seealso [hash_persona()], [hash_tool_spec()], [archive_agent_study()],
+#'   [LLMR::llm_hash()]
 #' @export
 agent_manifest <- function(run) {
   r <- as_agent_run(run)

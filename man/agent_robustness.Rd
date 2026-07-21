@@ -11,7 +11,7 @@ agent_robustness(
   vary = list(),
   measure = NULL,
   baseline = "first",
-  .config = NULL,
+  config = NULL,
   parallel = FALSE,
   quiet = TRUE,
   ...
@@ -35,7 +35,7 @@ is already scalar.}
 
 \item{baseline}{Which level of each axis is the reference (\code{"first"}).}
 
-\item{.config}{A base config (used to build \code{perturb$config}).}
+\item{config}{A base config (used to build \code{perturb$config}).}
 
 \item{parallel}{Passed to \code{\link[=agent_experiment]{agent_experiment()}}.}
 

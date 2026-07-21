@@ -1,0 +1,128 @@
+---
+title: "Validity: robustness, personas, and scoped claims"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Validity: robustness, personas, and scoped claims}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  eval = identical(tolower(Sys.getenv("LLMRAGENT_RUN_VIGNETTES", "false")), "true")
+)
+```
+
+A language model will answer questions about populations it has not observed.
+Fluency does not establish measurement validity. A defensible study records
+how results move under perturbation, inspects its persona prompts, and states
+the limited kind of claim its design can support.
+
+```{r setup}
+library(LLMRagent)
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.7)
+```
+
+## Robustness under perturbation
+
+Suppose a model rates how risky an activity is. A result deserves scrutiny if
+temperature, option order, persona wording, or a faithful paraphrase moves the
+answer. `agent_robustness()` builds that perturbation grid and reports the
+movement by axis.
+
+```{r robustness}
+rate_risk <- function(cond, rep, perturb) {
+  a <- agent("Rater", perturb$config)
+  answer <- a$reply(perturb$prompt(
+    "On a scale of 1 to 10, how risky is skydiving? Reply with one integer."
+  ))
+  as.numeric(gsub("[^0-9].*$", "", trimws(answer)))
+}
+
+battery <- agent_robustness(
+  rate_risk,
+  vary = list(temperature = c("0", "1")),
+  reps = 3,
+  measure = function(x) x,
+  config = cfg
+)
+
+battery$by_axis
+battery$overall
+```
+
+For numeric measures, the per-axis agreement statistic uses interval
+Krippendorff alpha. Categorical measures use nominal alpha. The `fragile` flag
+is a screening result, not a conclusion. Read the axis rows to locate the
+source and size of instability.
+
+`vary_prompt(paraphrase =, prompt =, config =)` generates a fixed paraphrase
+set before the experiment. This turns prompt wording into a declared design
+axis instead of a hidden search for favorable wording.
+
+## Personas are prompts with provenance
+
+A synthetic persona is not a sampled person. `persona_frame()` stores the
+brief, its source, scope conditions, varied attributes, and a content hash.
+`persona_variants()` builds a designed set without treating a demographic
+attribute as a theory of behavior.
+
+```{r personas}
+base <- persona_frame(
+  "A first-time voter in a competitive district.",
+  source = "synthetic",
+  scope = list(country = "US")
+)
+
+set <- persona_variants(
+  base,
+  vary = list(age = c("22", "52"),
+              employment = c("salaried", "hourly"))
+)
+
+audit <- persona_audit(set)
+audit
+diagnostics(audit)
+```
+
+The offline audit flags a small set of essentializing constructions. An
+optional model-based audit can add caricature scores through
+`persona_audit(set, config = cfg)`. Neither layer certifies a persona. The
+briefs remain primary evidence and should be read.
+
+## Claim types state the design's scope
+
+`mark_claim_type()` records whether a run is an instrument pilot, a theory
+probe, or a coding exercise. These labels do not convert model output into a
+human population estimate.
+
+```{r claims}
+coder <- agent("Coder", cfg)
+coder$chat("Is this abstract about climate? Answer yes or no.\n...")
+run <- mark_claim_type(as_agent_run(coder), "coding")
+
+report(run)
+```
+
+`llm_claim_lint()` scans prose for population-estimate constructions. With
+`action = "scope"`, it appends an ordinary scope sentence. With
+`action = "error"`, it raises `llmragent_claim_error` so custom reporting code
+can refuse the claim.
+
+```{r lint}
+llm_claim_lint(
+  "We find that 60% of Americans support the policy.",
+  run = run,
+  action = "scope"
+)
+```
+
+## A defensible sequence
+
+Pilot the instrument and call it a pilot. Audit persona prompts before using
+them. Treat coding as coding, with separate human validation appropriate to the
+substantive measurement problem. Stress the full procedure across declared
+perturbations. Archive the run and the robustness results. These steps do not
+make model output representative of people; they make the study's limitations
+legible.

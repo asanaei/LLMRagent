@@ -38,9 +38,9 @@ ada$usage()                                    # calls, tokens, tool calls, seco
 - *Memory*: last-n buffer, auto-summarizing memory that compacts itself when
   the conversation grows (optionally billed to a cheaper model), or
   embedding-based recall (`?memory`).
-- *Budgets*: `budget(max_calls, max_tokens, max_tool_calls, max_seconds)` is
-  checked **before** each call; the call that would exceed it raises a typed
-  error instead of spending.
+- *Budgets*: `max_calls` is checked before every model round and
+  `max_tool_calls` before tool execution. Token and elapsed-time limits stop
+  the next model round once recorded use reaches the limit.
 - *Traces*: `agent$trace()` is a tibble of every call, tool run, and memory
   compaction, with tokens and timings. Failures raise errors; they are never
   recorded as something the model said.
@@ -63,14 +63,14 @@ product in a tidy `steps` frame.
 
 **Multi-agent conversations.** `conversation()` records each speaker's turns
 in a shared transcript that all agents receive. Turn order can be round-robin,
-random, or selected by a moderator. The following study formats return data
-frames for analysis:
+random, or selected by a moderator. The following study formats return classed
+results with tabular transcripts or question-and-answer data for analysis:
 
 | Preset | Returns |
 |---|---|
 | `debate(pro, con, topic, judge =)` | phased transcript + structured verdict |
 | `focus_group(moderator, participants, topic)` | utterance-level transcript + moderator synthesis |
-| `interview(interviewer, respondent, topic)` | tidy question/answer frame with adaptive probes |
+| `interview(interviewer, respondent, topic)` | classed result with a tidy question/answer frame in `$qa` |
 | `deliberate(agents, proposal)` | discussion transcript + private structured votes + tally |
 
 **Agent experiments.** `agent_experiment(design, run_fn, reps)` runs a
@@ -79,8 +79,9 @@ in parallel and records errors by design cell in the returned data frame.
 Combine with `LLMR::llm_log_enable()` for a per-call audit file of the entire
 study.
 
-`think_harder()` composes these functions by using one model for planning and
-synthesis and a pool of less expensive models for the intervening work.
+`agent_fanout_synthesis()` composes these functions by using one model for
+planning and synthesis and a pool of less expensive models for the intervening
+work.
 
 ## A small multi-agent example
 
@@ -101,16 +102,18 @@ d$decision
 
 - *LLMRagent in 10 minutes*: agents, tools, budgets, delegation, pipelines.
 - *Designed conversations*: debates, focus groups, interviews, deliberations.
-- *Coordinating strong and cheap models*: a worked example with `think_harder()`.
+- *Coordinating strong and cheap models*: a worked example with
+  `agent_fanout_synthesis()`.
 - *A deliberation experiment*: a complete factorial study with analysis.
 
 All articles and reference: <https://asanaei.github.io/LLMRagent/>
 
 ## Relation to LLMR
 
-[LLMR](https://asanaei.github.io/LLMR/) supplies the common provider interface
-used by LLMRagent. `agent()` accepts an `LLMR::llm_config()` object, so provider
-and model settings are shared between the packages.
+[LLMR](https://asanaei.github.io/LLMR/) version 0.8.11 or later supplies the
+common provider interface used by LLMRagent. `agent()` accepts an
+`LLMR::llm_config()` object, so provider and model settings are shared between
+the packages.
 
 ## The LLMR ecosystem
 

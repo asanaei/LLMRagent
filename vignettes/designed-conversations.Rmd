@@ -82,8 +82,8 @@ piloting an instrument before you spend human-subjects time on it.
 
 `interview()` works through a question list with one adaptive probe after
 each answer (the interviewer decides whether a probe is warranted; `NONE`
-suppresses it). The return is already the frame interview studies analyze:
-one row per question or probe.
+suppresses it). The return is a classed object whose `$qa` field is the frame
+interview studies analyze, with one row per question or probe.
 
 ```{r interview}
 iv <- interview(
@@ -94,7 +94,7 @@ iv <- interview(
   topic = "Working under algorithmic management",
   n_questions = 3
 )
-iv[, c("type", "question")]
+iv$qa[, c("type", "question")]
 ```
 
 ## Deliberation: talk, then decide
@@ -119,9 +119,10 @@ dl$decision
 
 ## From transcripts to analysis
 
-Every preset returns its transcript as a tidy tibble, so the path to
-analysis is short. Two common moves: score utterances with a model (via
-LLMR's tidy verbs), and compare across runs with [agent_experiment()].
+Each preset exposes its analysis table as a tidy tibble: `$transcript` for the
+group formats and `$qa` for an interview. `as.data.frame()` returns that primary
+table. Two common moves are to score utterances with a model through LLMR's
+tidy verbs and compare runs with [agent_experiment()].
 
 ```{r analyze}
 # Who spoke most, and how much?

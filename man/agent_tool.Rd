@@ -37,8 +37,8 @@ object (as in \code{\link[LLMR:llm_tool]{LLMR::llm_tool()}}).}
 \code{\link[=human_gate]{human_gate()}}); the agent then runs a controllable tool loop so the pause
 is possible. Default \code{FALSE}.}
 
-\item{timeout_s}{Optional wall-clock limit per call (seconds); needs the
-\code{R.utils} package to enforce, otherwise it is recorded but not enforced.}
+\item{timeout_s}{Optional wall-clock limit per call (seconds). Timed calls
+run in a \code{callr} child process, which is terminated at the limit.}
 
 \item{max_calls}{Maximum times this \strong{tool object} may run (\code{Inf} by
 default). A call beyond the limit is refused (the model is told, not the
@@ -52,7 +52,8 @@ each cell should get its own budget.}
 boundary within the cap and flagged.}
 }
 \value{
-An \code{llmr_tool} carrying a \code{"governance"} attribute.
+An object of class \code{agent_tool} and \code{llmr_tool}, with its governance
+policy in the ordinary \code{governance} field.
 }
 \description{
 Like \code{\link[LLMR:llm_tool]{LLMR::llm_tool()}}, but the tool also declares how it behaves as a

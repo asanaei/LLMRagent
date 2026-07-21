@@ -23,8 +23,8 @@ transcript, with turn-taking policies and stop rules; presets
 \code{\link[=debate]{debate()}}, \code{\link[=focus_group]{focus_group()}}, \code{\link[=interview]{interview()}}, and \code{\link[=deliberate]{deliberate()}}.
 \item \code{\link[=agent_experiment]{agent_experiment()}}: factorial designs over conditions and replications,
 run sequentially or in parallel, returning one tidy results frame.
-\item \code{\link[=think_harder]{think_harder()}}: an orchestrator that uses one strong model to plan and
-synthesize while many cheap models draft answers in parallel.
+\item \code{\link[=agent_fanout_synthesis]{agent_fanout_synthesis()}}: an orchestrator that uses one strong model to
+plan and synthesize while many cheap models draft answers in parallel.
 }
 
 Every run yields a tidy transcript and a trace of calls, tokens, and

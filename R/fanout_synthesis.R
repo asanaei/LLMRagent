@@ -1,4 +1,4 @@
-# superbrain.R ------------------------------------------------------------------
+# fanout_synthesis.R ---------------------------------------------------------
 # One strong model plans and synthesizes; many cheap models draft candidate answers in
 # parallel. For hard questions this keeps much of the strong model's quality while
 # making far fewer strong-model calls, and the intermediate products stay inspectable.
@@ -32,7 +32,7 @@
 #' @param quiet FALSE prints stage progress.
 #' @param ... Passed to `LLMR::call_llm_par()` for the worker stage
 #'   (e.g. `tries`, `progress`).
-#' @return A list of class `super_brain`:
+#' @return A list of class `agent_fanout_result`:
 #'   \describe{
 #'     \item{`answer`}{The final answer (character).}
 #'     \item{`plan`}{Tibble of approaches: `title`, `instructions`.}
@@ -45,7 +45,7 @@
 #' \dontrun{
 #' strong <- LLMR::llm_config("deepseek", "deepseek-reasoner")
 #' cheap  <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.8)
-#' out <- think_harder(
+#' out <- agent_fanout_synthesis(
 #'   "A city of 1M residents wants to halve traffic deaths in 5 years
 #'    with a budget of $40M. Propose the most cost-effective portfolio
 #'    of interventions, with rough numbers.",
@@ -55,9 +55,9 @@
 #' out$workers[, c("approach", "success")]
 #' }
 #' @export
-think_harder <- function(problem, strong_config, cheap_config,
-                         n_approaches = 4L, verify = TRUE,
-                         quiet = FALSE, ...) {
+agent_fanout_synthesis <- function(problem, strong_config, cheap_config,
+                                   n_approaches = 4L, verify = TRUE,
+                                   quiet = FALSE, ...) {
   stopifnot(is.character(problem), length(problem) == 1L, nzchar(problem))
   .check_config(strong_config, "strong_config")
   .check_config(cheap_config, "cheap_config")
@@ -208,19 +208,19 @@ think_harder <- function(problem, strong_config, cheap_config,
          verification = verification, revised = revised,
          provenance = list(
            run_id = .llmragent_id("run"),
-           kind = "think_harder",
+           kind = "agent_fanout_synthesis",
            design = list(n_approaches = n_approaches, verify = verify,
                          strong_model = strong_config$model,
                          cheap_model = cheap_config$model),
            strong_calls = strong_calls,
            created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
            llmr_log = .llmragent_active_log())),
-    class = "super_brain"
+    class = "agent_fanout_result"
   )
 }
 
-#' @exportS3Method as_agent_run super_brain
-as_agent_run.super_brain <- function(x, ...) {
+#' @exportS3Method as_agent_run agent_fanout_result
+as_agent_run.agent_fanout_result <- function(x, ...) {
   prov <- x$provenance
   # Strong-model calls: build spans from the captured records, carrying the
   # request body + reply metadata so the archive can emit a true audit log.
@@ -273,8 +273,8 @@ as_agent_run.super_brain <- function(x, ...) {
 }
 
 #' @export
-print.super_brain <- function(x, ...) {
-  cat(sprintf("<super_brain | %d approaches | %d/%d workers ok | revised: %s>\n\n",
+print.agent_fanout_result <- function(x, ...) {
+  cat(sprintf("<agent_fanout_result | %d approaches | %d/%d workers ok | revised: %s>\n\n",
               nrow(x$plan), sum(x$workers$success %in% TRUE), nrow(x$workers),
               x$revised))
   cat(x$answer, "\n")

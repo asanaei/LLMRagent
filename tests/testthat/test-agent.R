@@ -85,9 +85,9 @@ test_that("tool history is counted and traced", {
 
 test_that("aggregate tool-loop spend is accounted, not just the final call", {
   r <- fake_response("done", sent = 5L, rec = 5L)
-  attr(r, "tool_loop") <- list(model_calls = 3L, sent = 60L, rec = 15L,
-                               tool_calls = 2L)
-  attr(r, "tool_history") <- tibble::tibble(
+  r$tool_loop <- list(model_calls = 3L, sent = 60L, rec = 15L,
+                      tool_calls = 2L)
+  r$tool_history <- tibble::tibble(
     round = c(1L, 2L), name = c("a", "b"),
     arguments = c("{}", "{}"), result = c("1", "2"))
   a <- fake_agent("T", list(r))
@@ -112,6 +112,55 @@ test_that("memory compaction spend lands on the agent's meter", {
     tr <- a$trace()
     expect_true(any(tr$event == "compact" & tr$tokens_sent == 7L))
   })
+})
+
+test_that("compaction cannot spend the call reserved for the reply", {
+  withr::local_envvar(GROQ_API_KEY = "test-key-not-real")
+  m <- memory_summary(threshold_chars = 1, keep_last = 2)
+  m$add("user", "old one")
+  m$add("assistant", "old two")
+  m$add("user", "old three")
+  reply_calls <- 0L
+  cfg <- LLMR::llm_config("groq", "fake-model")
+  a <- Agent$new(
+    "C", cfg, memory = m, budget = budget(max_calls = 1), quiet = TRUE,
+    caller = function(config, messages, tools, ...) {
+      reply_calls <<- reply_calls + 1L
+      fake_response("reply")
+    })
+
+  with_stub_llmr("call_llm_robust", function(config, messages, ...) {
+    fake_response("summary", sent = 7L, rec = 3L)
+  }, {
+    expect_error(a$chat("new question"), class = "llmragent_budget_error")
+  })
+  expect_identical(reply_calls, 0L)
+  expect_identical(a$usage()$calls, 1L)
+})
+
+test_that("compaction counts against the elapsed-time budget", {
+  withr::local_envvar(GROQ_API_KEY = "test-key-not-real")
+  m <- memory_summary(threshold_chars = 1, keep_last = 2)
+  m$add("user", "old one")
+  m$add("assistant", "old two")
+  m$add("user", "old three")
+  reply_calls <- 0L
+  a <- Agent$new(
+    "C", LLMR::llm_config("groq", "fake-model"), memory = m,
+    budget = budget(max_seconds = 0.001), quiet = TRUE,
+    caller = function(config, messages, tools, ...) {
+      reply_calls <<- reply_calls + 1L
+      fake_response("reply")
+    })
+
+  with_stub_llmr("call_llm_robust", function(config, messages, ...) {
+    Sys.sleep(0.02)
+    fake_response("summary")
+  }, {
+    expect_error(a$chat("new question"), class = "llmragent_budget_error")
+  })
+  expect_identical(reply_calls, 0L)
+  expect_identical(a$usage()$calls, 1L)
 })
 
 test_that("agent() validates its inputs", {

@@ -17,8 +17,8 @@
 #'   [debate()], [focus_group()], [interview()], and [deliberate()].
 #' - [agent_experiment()]: factorial designs over conditions and replications,
 #'   run sequentially or in parallel, returning one tidy results frame.
-#' - [think_harder()]: an orchestrator that uses one strong model to plan and
-#'   synthesize while many cheap models draft answers in parallel.
+#' - [agent_fanout_synthesis()]: an orchestrator that uses one strong model to
+#'   plan and synthesize while many cheap models draft answers in parallel.
 #'
 #' Every run yields a tidy transcript and a trace of calls, tokens, and
 #' timings. Combine with `LLMR::llm_log_enable()` for a complete per-call

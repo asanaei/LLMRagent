@@ -1,5 +1,5 @@
 # archive.R -------------------------------------------------------------------
-# Seal an agent study to a directory: the manifest (the apparatus identity), the
+# Seal an agent study to a directory: the manifest (the declared specification), the
 # transcript and event/call/tool/state views, the per-call provenance (the LLMR
 # audit log, copied verbatim when one was kept), the artifacts, a drafted
 # methods note, and a SHA-256 manifest over every file written. This is the one
@@ -21,8 +21,14 @@
 #' the LLMR audit log copied verbatim when one was kept), any artifacts, a
 #' drafted methods note (`README-methods.md`), and a `hashes.sha256` manifest
 #' over every file written. The archive is the supplementary material a paper
-#' can ship: it carries the apparatus's identity and the calls' provenance, not
+#' can ship: it carries the declared specification and the calls' provenance, not
 #' just the prose.
+#'
+#' The archive is privacy-preserving at its serialization boundary: `run.rds`
+#' is a data-only snapshot of the same projected levels written to the text
+#' formats. Live agents, callers, tool functions, model configurations, and
+#' configuration secrets are never serialized into the archive. Message
+#' omission and redaction apply to this snapshot as well as the text files.
 #'
 #' Hashes are identity, not outcome. The `request_hash` in `calls.jsonl` is
 #' computed over the original request, so a call read back from the archive
@@ -36,6 +42,8 @@
 #' @param run An object accepted by [as_agent_run()] (an [Agent], a conversation
 #'   or preset result, a pipeline, an experiment, or an `agent_run`).
 #' @param path Directory to write into; created (recursively) if absent.
+#' @param overwrite If `FALSE` (default), refuse a non-empty `path`. Set to
+#'   `TRUE` to replace archive files in an existing directory.
 #' @param include_messages If `TRUE` (default), write the transcript and the
 #'   free-text columns of the tool and state tables. If `FALSE`, those tables
 #'   are still written but their free-text columns are blanked, keeping only
@@ -52,7 +60,8 @@
 #'   applied to the on-disk copy after hashing, so the join invariant holds.
 #' @param formats Which optional formats to write, any of `"csv"` (the tabular
 #'   views), `"jsonl"` (events and calls; always written), and `"rds"` (the
-#'   `agent_run` object as `run.rds`). Defaults to all three.
+#'   privacy-filtered, data-only run snapshot as `run.rds`). Defaults to all
+#'   three.
 #' @return Invisibly, an object of class `agent_archive`: a list with `path`,
 #'   `files` (relative paths written), `manifest_hash`, and `n_calls`. Print
 #'   lists what was written and confirms the seal.
@@ -66,10 +75,17 @@
 #' @export
 archive_agent_study <- function(run, path, include_messages = TRUE,
                                 redact = NULL,
-                                formats = c("csv", "jsonl", "rds")) {
-  r <- as_agent_run(run)
+                                formats = c("csv", "jsonl", "rds"),
+                                overwrite = FALSE) {
+  if (dir.exists(path) &&
+      length(list.files(path, all.files = TRUE, no.. = TRUE)) &&
+      !isTRUE(overwrite)) {
+    stop("`path` is not empty; set `overwrite = TRUE` to replace archive files.",
+         call. = FALSE)
+  }
   formats <- match.arg(formats, several.ok = TRUE)
   dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  r <- as_agent_run(run)
 
   redactor <- .make_redactor(redact)
   files <- character(0)
@@ -80,7 +96,17 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
     tibble::as_tibble(as_tibble(r, level = level)),
     error = function(e) tibble::tibble())
 
-  # ---- manifest.json (apparatus identity; tibbles -> data.frames for rows) ---
+  # These projections are the archive's data boundary. They contain no live
+  # agents, configs, tool functions, callers, or span metadata, and the same
+  # privacy policy is applied to their free text in every output format.
+  archive_levels <- list(
+    utterance = .redact_cols(lvl("utterance"), redactor, include_messages),
+    event = lvl("event"),
+    call = .redact_cols(lvl("call"), redactor, include_messages),
+    tool = .redact_cols(lvl("tool"), redactor, include_messages),
+    state = .redact_cols(lvl("state"), redactor, include_messages))
+
+  # ---- manifest.json (declared specification; tibbles -> data.frames) --------
   man <- tryCatch(agent_manifest(r), error = function(e) NULL)
   manifest_hash <- man$manifest_hash %||% NA_character_
   files <- c(files, tryCatch({
@@ -95,15 +121,15 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
   # ---- transcript.csv (analysis grain) --------------------------------------
   if ("csv" %in% formats) {
     files <- c(files, tryCatch({
-      utt <- .redact_cols(lvl("utterance"), redactor, include_messages)
-      utils::write.csv(utt, file.path(path, "transcript.csv"), row.names = FALSE)
+      utils::write.csv(archive_levels$utterance,
+                       file.path(path, "transcript.csv"), row.names = FALSE)
       "transcript.csv"
     }, error = function(e) character(0)))
   }
 
   # ---- events.jsonl (every span, one JSON object per line) ------------------
   files <- c(files, tryCatch({
-    .write_jsonl(lvl("event"), file.path(path, "events.jsonl"))
+    .write_jsonl(archive_levels$event, file.path(path, "events.jsonl"))
     "events.jsonl"
   }, error = function(e) character(0)))
 
@@ -120,7 +146,7 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
       # Filter the live session log to THIS run's calls, by request hash, so a
       # session with prior unrelated calls does not leak them into the archive.
       run_hashes <- tryCatch(
-        stats::na.omit(tibble::as_tibble(lvl("call"))$request_hash),
+        stats::na.omit(archive_levels$call$request_hash),
         error = function(e) character(0))
       n_kept <- NA_integer_
       if (length(run_hashes)) {
@@ -157,21 +183,30 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
   # ---- tools.csv / state.csv (governed tool calls; agent memory at end) -----
   if ("csv" %in% formats) {
     files <- c(files, tryCatch({
-      tl <- .redact_cols(lvl("tool"), redactor, include_messages)
-      utils::write.csv(tl, file.path(path, "tools.csv"), row.names = FALSE)
+      utils::write.csv(archive_levels$tool, file.path(path, "tools.csv"),
+                       row.names = FALSE)
       "tools.csv"
     }, error = function(e) character(0)))
     files <- c(files, tryCatch({
-      st <- .redact_cols(lvl("state"), redactor, include_messages)
-      utils::write.csv(st, file.path(path, "state.csv"), row.names = FALSE)
+      utils::write.csv(archive_levels$state, file.path(path, "state.csv"),
+                       row.names = FALSE)
       "state.csv"
     }, error = function(e) character(0)))
   }
 
-  # ---- run.rds (the object itself) ------------------------------------------
+  # ---- run.rds (privacy-filtered data snapshot, never the live run) ----------
   if ("rds" %in% formats) {
     files <- c(files, tryCatch({
-      saveRDS(r, file.path(path, "run.rds"))
+      snapshot <- structure(c(list(
+        schema = "llmragent_archive_run/1",
+        run_id = r$run_id,
+        kind = r$kind,
+        created_at = r$created_at,
+        manifest_hash = manifest_hash,
+        participants = tibble::as_tibble(r$participants),
+        pkg_versions = r$pkg_versions), archive_levels),
+        class = "agent_archive_run")
+      saveRDS(snapshot, file.path(path, "run.rds"))
       "run.rds"
     }, error = function(e) character(0)))
   }
@@ -197,7 +232,7 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
   }, error = function(e) NULL)
   files <- c(files, "hashes.sha256")
 
-  n_calls <- tryCatch(nrow(lvl("call")), error = function(e) 0L)
+  n_calls <- nrow(archive_levels$call)
 
   structure(
     list(path = path, files = files,
@@ -508,7 +543,8 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
   calls <- tryCatch(tibble::as_tibble(as_tibble(r, level = "call")),
                     error = function(e) NULL)
   methods <- if (!is.null(calls)) {
-    tryCatch(LLMR::llm_methods_text(calls),
+    class(calls) <- unique(c("llmr_experiment", class(calls)))
+    tryCatch(LLMR::report(calls),
              error = function(e) "Methods paragraph unavailable (no call records).")
   } else {
     "Methods paragraph unavailable (no call records)."

@@ -189,17 +189,3 @@ test_that("replay verifies a LOOPING workflow by sequence position", {
   expect_true(all(rp$steps$replay_match %in% c(TRUE, NA)))
   expect_equal(nrow(rp$steps), nrow(run$steps))   # same sequence length
 })
-
-test_that("agent_calibrate OLS accepts a two-sided formula with y absent from data", {
-  withr::local_seed(110)
-  N <- 400L; n <- 80L
-  d <- data.frame(x1 = rnorm(N), x2 = rnorm(N))       # covariates only
-  y <- 1 + 2 * d$x1 - d$x2 + rnorm(N, sd = 0.5)
-  pred <- y + 0.3 + rnorm(N, sd = 0.4)                # biased predictions
-  cal <- agent_calibrate(predictions = pred, gold = y[1:n],
-                         method = "ppi", estimand = "ols",
-                         formula = y ~ x1 + x2, data = d, id = 1:n)
-  expect_s3_class(cal, "agent_calibration")
-  x1 <- cal$estimate$estimate[cal$estimate$term == "x1"]
-  expect_true(abs(x1 - 2) < 0.3)                      # recovers the true slope
-})

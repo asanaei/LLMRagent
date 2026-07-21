@@ -14,7 +14,8 @@ budget(
 \arguments{
 \item{max_calls}{Maximum number of model calls.}
 
-\item{max_tokens}{Maximum total tokens (sent + received) across calls.}
+\item{max_tokens}{Stop before the next model call once recorded sent and
+received tokens reach this value.}
 
 \item{max_tool_calls}{Maximum executed tool invocations.}
 
@@ -24,11 +25,12 @@ budget(
 An object of class \code{agent_budget}.
 }
 \description{
-Budgets are hard limits, checked before every model call. When a limit
-would be exceeded, the agent raises a condition of class
-\code{llmragent_budget_error} instead of calling the API, so a runaway loop
-cannot spend without leaving a record. Catch it with \code{tryCatch()} if you want
-graceful degradation.
+Call, tool-call, and elapsed-time limits are checked before every model
+round. When one is exhausted, the agent raises a condition of class
+\code{llmragent_budget_error} without making the next call. \code{max_tokens} is a
+recorded-use gate: the agent stops before the next call once recorded usage
+reaches the limit, but one response can take the total past it because the
+response's token count is not known in advance.
 }
 \examples{
 b <- budget(max_calls = 10, max_tokens = 50000)

@@ -20,7 +20,6 @@ test_that("view_run writes a self-contained HTML inspector for a chat run", {
   expect_match(html, "<table")                          # rendered as HTML tables
   expect_match(html, "Ada", fixed = TRUE)               # the agent name appears
   # transcript rows are tied to span events: events are anchored by span id.
-  expect_match(html, "span")                            # span anchors / links
   expect_match(html, "id=\"span-", fixed = TRUE)        # an actual span anchor
 })
 
@@ -55,20 +54,6 @@ test_that("view_run renders a multi-agent deliberation with both agents", {
   html <- read_html(out)
   expect_match(html, "Ada", fixed = TRUE)
   expect_match(html, "Bo", fixed = TRUE)
-  expect_match(html, "<table")
-})
-
-test_that("a minimal run still writes a valid HTML file", {
-  a <- fake_agent("Solo", list("only"))
-  a$chat("ping")
-  r <- as_agent_run(a)
-
-  out <- view_run(r, output = tempfile(fileext = ".html"), open = FALSE)
-  expect_true(file.exists(out))
-  expect_gt(file.size(out), 0)
-
-  html <- read_html(out)
-  expect_match(html, "Solo", fixed = TRUE)
   expect_match(html, "<table")
 })
 

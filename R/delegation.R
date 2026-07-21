@@ -49,7 +49,7 @@
 #'    What would it take to argue causality here?")
 #' statistician$usage()   # the consultation is on the specialist's meter
 #' }
-#' @seealso [agent()], [agent_pipeline()], [think_harder()]
+#' @seealso [agent()], [agent_pipeline()], [agent_fanout_synthesis()]
 #' @export
 agent_as_tool <- function(x, name = NULL, description = NULL) {
   stopifnot(inherits(x, "Agent"))

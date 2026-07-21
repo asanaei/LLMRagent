@@ -22,10 +22,9 @@ method that \code{cat()}s the lines.
 \description{
 Composes a short, citable account of a run: a design header (kind, run id,
 the participating agents, and a compact workflow summary), the model and
-token paragraph drafted by \code{\link[LLMR:llm_methods_text]{LLMR::llm_methods_text()}} over the run's
-call-level rows, and a one-line limits note. When no calibration is attached
-and the run is not a calibrated inference, the note states that the results
-are model-conditioned and are not estimates of a human population.
+token paragraph drafted by \code{\link[LLMR:report]{LLMR::report()}} over the run's
+call-level rows, and a one-line limits note stating that the results are
+model-conditioned and are not estimates of a human population.
 }
 \examples{
 \dontrun{
@@ -35,5 +34,5 @@ report(a, task = "to answer a factual question")
 }
 }
 \seealso{
-\code{\link[=diagnostics]{diagnostics()}}, \code{\link[LLMR:llm_methods_text]{LLMR::llm_methods_text()}}
+\code{\link[=diagnostics]{diagnostics()}}, \code{\link[LLMR:report]{LLMR::report()}}
 }

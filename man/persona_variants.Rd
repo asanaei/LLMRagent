@@ -5,7 +5,7 @@
 \alias{print.persona_set}
 \title{Vary a persona along named dimensions}
 \usage{
-persona_variants(p, vary, n = NULL, .config = NULL)
+persona_variants(p, vary, n = NULL, config = NULL)
 
 \method{print}{persona_set}(x, ...)
 }
@@ -18,7 +18,7 @@ level vectors (e.g. \code{list(age = c("28", "52"), risk = c("cautious", "tolera
 \item{n}{Number of briefs to generate (generative mode only). Ignored when
 enumerating.}
 
-\item{.config}{Optional generative \code{LLMR::llm_config()}. When \code{NULL}
+\item{config}{Optional generative \code{LLMR::llm_config()}. When \code{NULL}
 (default), the set is enumerated offline.}
 
 \item{x}{A \code{persona_set}.}
@@ -35,12 +35,12 @@ Turn one \code{\link[=persona_frame]{persona_frame()}} into a designed \emph{set
 }
 \details{
 \itemize{
-\item \strong{Enumerated} (default, \code{.config = NULL}): \code{vary} is a named list of level
+\item \strong{Enumerated} (default, \code{config = NULL}): \code{vary} is a named list of level
 vectors and the result is their full Cartesian product. Each combination is
 rendered by appending the varied attributes to the base brief in plain,
 factual language (no stereotyping copula), so the design is legible and the
 base text is never rewritten.
-\item \strong{Generative} (\code{.config} is a generative \code{LLMR::llm_config()} and \code{n} is
+\item \strong{Generative} (\code{config} is a generative \code{LLMR::llm_config()} and \code{n} is
 given): one structured call asks the model for \code{n} individuated briefs that
 vary \code{names(vary)}, under a hard-coded anti-essentialism instruction. Use
 this when you want fluent, non-templated briefs; audit the result with
@@ -62,7 +62,7 @@ set$persona[[1]]$attributes
 \dontrun{
 cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
 gen <- persona_variants(base, vary = list(age = NA, occupation = NA),
-                        n = 5, .config = cfg)
+                        n = 5, config = cfg)
 persona_audit(gen)
 }
 }

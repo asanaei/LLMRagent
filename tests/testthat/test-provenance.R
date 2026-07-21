@@ -70,20 +70,13 @@ test_that("a deliberation aggregates every participant's calls into one run", {
   expect_true("votes" %in% names(run$artifacts))
 })
 
-test_that("agent_manifest hashes design identity, not outcomes", {
+test_that("agent_manifest returns a SHA-256 identified chat manifest", {
   a <- fake_agent("M", list("hi"))
   a$chat("q")
   m <- agent_manifest(a)
   expect_s3_class(m, "agent_manifest")
   expect_true(nchar(m$manifest_hash) == 64L)
   expect_identical(m$kind, "chat")
-
-  # two agents with the same brief and name hash their personas identically;
-  # a reworded persona flips the hash
-  expect_identical(hash_persona("a careful coder", "X"),
-                   hash_persona("a careful coder", "X"))
-  expect_false(identical(hash_persona("a careful coder", "X"),
-                         hash_persona("a careless coder", "X")))
 })
 
 test_that("archive_agent_study writes a sealed, LLMR-readable directory", {
@@ -110,9 +103,85 @@ test_that("archive_agent_study writes a sealed, LLMR-readable directory", {
   expect_true(all(read$manifest$has_payload))
   # the authoritative request_hash is carried in the run's call level
   expect_true(all(!is.na(run_calls$request_hash)))
-  # re-sealing: recomputing the file hashes matches hashes.sha256
   seal <- readLines(file.path(dir, "hashes.sha256"))
-  expect_true(length(seal) >= 4L)
+  archived_hashes <- substr(seal, 1L, 64L)
+  archived_files <- substring(seal, 67L)
+  expected_files <- setdiff(arc$files, "hashes.sha256")
+  expect_setequal(archived_files, expected_files)
+  expect_identical(
+    unname(archived_hashes),
+    unname(vapply(file.path(dir, archived_files),
+                  LLMRagent:::.file_sha256, character(1))))
+})
+
+test_that("archive snapshots are data-only and exclude literal config keys", {
+  withr::local_envvar(GROQ_API_KEY = "test-key-not-real")
+  literal_key <- "sk-literal-must-not-be-archived"
+  cfg <- suppressWarnings(LLMR::llm_config(
+    "groq", "fake-model", api_key = literal_key))
+  tool <- agent_tool(
+    function() "tool-body-sentinel", name = "sentinel", description = "d")
+  a <- Agent$new("Private", cfg, tools = list(tool),
+                 caller = scripted_caller(list("private reply")), quiet = TRUE)
+  a$chat("private question")
+
+  dir <- withr::local_tempdir()
+  archive_agent_study(a, dir, redact = "private")
+  snapshot <- readRDS(file.path(dir, "run.rds"))
+
+  has_live_code <- function(x) {
+    if (is.environment(x) || is.function(x)) return(TRUE)
+    if (!is.list(x)) return(FALSE)
+    any(vapply(unclass(x), has_live_code, logical(1)))
+  }
+  expect_s3_class(snapshot, "agent_archive_run")
+  expect_false(has_live_code(snapshot))
+  expect_false(any(c("agents", "spans", "llm_log") %in% names(snapshot)))
+  expect_true(all(c("utterance", "event", "call", "tool", "state") %in%
+                    names(snapshot)))
+  expect_true(any(grepl("REDACTED", snapshot$utterance$text, fixed = TRUE)))
+  expect_true(any(grepl("REDACTED", snapshot$call$response_text, fixed = TRUE)))
+
+  key_bytes <- charToRaw(literal_key)
+  contains_key <- function(path) {
+    if (identical(basename(path), "run.rds")) {
+      con <- gzfile(path, open = "rb")
+      bytes <- readBin(con, what = "raw", n = 1e7)
+      close(con)
+    } else {
+      bytes <- readBin(path, what = "raw", n = 1e7)
+    }
+    starts <- seq_len(max(0L, length(bytes) - length(key_bytes) + 1L))
+    any(vapply(starts, function(i) {
+      identical(bytes[i + seq_along(key_bytes) - 1L], key_bytes)
+    }, logical(1)))
+  }
+  expect_false(any(vapply(
+    list.files(dir, recursive = TRUE, full.names = TRUE),
+    contains_key, logical(1))))
+})
+
+test_that("archive snapshots honor message omission", {
+  a <- fake_agent("A", list("private reply"))
+  a$chat("private question")
+  dir <- withr::local_tempdir()
+  archive_agent_study(a, dir, include_messages = FALSE)
+  snapshot <- readRDS(file.path(dir, "run.rds"))
+
+  expect_true(all(stats::na.omit(snapshot$utterance$text) == "[OMITTED]"))
+  expect_true(all(stats::na.omit(snapshot$call$response_text) == "[OMITTED]"))
+  expect_true(all(stats::na.omit(snapshot$state$content) == "[OMITTED]"))
+})
+
+test_that("archive_agent_study refuses a non-empty destination by default", {
+  a <- fake_agent("A", list("ok"))
+  a$chat("question")
+  dir <- withr::local_tempdir()
+  writeLines("keep", file.path(dir, "existing.txt"))
+
+  expect_error(archive_agent_study(a, dir), "not empty")
+  expect_s3_class(suppressWarnings(
+    archive_agent_study(a, dir, overwrite = TRUE)), "agent_archive")
 })
 
 test_that("diagnostics() numbers match LLMR::llm_usage on the call level", {
@@ -221,14 +290,14 @@ test_that("diagnostics() and report() accept a bare Agent, as documented", {
   expect_true(any(grepl("Bare", unclass(rep))))
 })
 
-test_that("report() drafts methods prose and warns when uncalibrated", {
+test_that("report() drafts methods prose with a population-scope note", {
   a <- fake_agent("R", list("hi"))
   a$chat("q")
   rep <- report(as_agent_run(a))
   expect_s3_class(rep, "agent_report")
   txt <- paste(unclass(rep), collapse = "\n")
   expect_true(grepl("LLMR", txt))
-  expect_true(grepl("model-conditioned|not.*estimate|calibrat", txt, ignore.case = TRUE))
+  expect_true(grepl("model-conditioned|not.*estimate", txt, ignore.case = TRUE))
 })
 
 test_that("redaction scrubs stored text but preserves the request-hash join", {

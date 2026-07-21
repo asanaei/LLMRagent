@@ -54,8 +54,9 @@ Two design decisions worth knowing:
 \item \strong{Failures are errors, not replies.} If a call fails, the typed LLMR
 condition propagates; nothing is written into memory, so an API hiccup
 is never stored as something the model said.
-\item \strong{Budgets are checked before, not after.} The agent refuses the call
-that would break the limit, raising \code{llmragent_budget_error}.
+\item \strong{Budgets are checked at every call boundary.} Call and tool-call limits
+stop the next round. The token limit stops the next round once recorded
+use reaches it; one response can cross that threshold.
 }
 }
 \examples{

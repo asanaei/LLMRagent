@@ -167,17 +167,16 @@ diagnostics.agent_experiment <- function(x, ...) {
 #'
 #' Composes a short, citable account of a run: a design header (kind, run id,
 #' the participating agents, and a compact workflow summary), the model and
-#' token paragraph drafted by [LLMR::llm_methods_text()] over the run's
-#' call-level rows, and a one-line limits note. When no calibration is attached
-#' and the run is not a calibrated inference, the note states that the results
-#' are model-conditioned and are not estimates of a human population.
+#' token paragraph drafted by [LLMR::report()] over the run's
+#' call-level rows, and a one-line limits note stating that the results are
+#' model-conditioned and are not estimates of a human population.
 #'
 #' @param x An object accepted by [as_agent_run()].
 #' @param ... May include `task`, a one-clause description of what the model was
 #'   asked to do (spliced into the methods paragraph).
 #' @return An object of class `agent_report`: a character vector with a print
 #'   method that `cat()`s the lines.
-#' @seealso [diagnostics()], [LLMR::llm_methods_text()]
+#' @seealso [diagnostics()], [LLMR::report()]
 #' @examples
 #' \dontrun{
 #' a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"))
@@ -204,19 +203,20 @@ report.agent_run <- function(x, ...) {
     tibble::as_tibble(as_tibble(run, level = "call")),
     error = function(e) NULL)
   methods <- if (!is.null(calls)) {
-    tryCatch(LLMR::llm_methods_text(calls, task = task),
+    class(calls) <- unique(c("llmr_experiment", class(calls)))
+    tryCatch(LLMR::report(calls, task = task),
              error = function(e) "Methods paragraph unavailable (no call records).")
   } else {
     "Methods paragraph unavailable (no call records)."
   }
 
   # Scope any population-estimate phrasing in the drafted methods to the run's
-  # claim type (a no-op for calibrated inference); then append the limits note.
+  # claim type, then append the limits note.
   methods <- tryCatch(llm_claim_lint(methods, run = run, action = "scope"),
                       error = function(e) methods)
 
   body <- c(header, "", methods)
-  note <- .claim_note(run)
+  note <- .claim_note()
   if (!is.null(note)) body <- c(body, "", note)
 
   structure(body, class = "agent_report")
@@ -250,19 +250,13 @@ report.Agent <- function(x, ...) {
   paste(parts, collapse = "; ")
 }
 
-# The limits/claim note. Returns NULL when the run carries a calibrated
-# inference or an attached calibration object (the caller then appends nothing);
-# otherwise the model-conditioned caveat. Kept as a small helper so a later
-# claim-type stage can branch on run$claim_type and reuse the calibration check.
+# The limits note appended to every run report.
 #' @keywords internal
 #' @noRd
-.claim_note <- function(run) {
-  is_calibrated <- identical(run$claim_type %||% NA_character_, "calibrated_inference")
-  has_calibration <- !is.null(run$calibration)
-  if (is_calibrated || has_calibration) return(NULL)
+.claim_note <- function() {
   paste0(
     "These results are model-conditioned; they are not estimates of a human ",
-    "population unless validated against human data (no calibration attached).")
+    "population without external human validation.")
 }
 
 #' Draft a short report for an agent experiment

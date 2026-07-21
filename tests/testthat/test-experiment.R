@@ -22,3 +22,12 @@ test_that("a failing cell records its error and the rest proceed", {
   expect_null(res$result[[2]])
   expect_equal(res$result[[3]], 30)
 })
+
+test_that("agent experiments print a concise status line", {
+  res <- agent_experiment(data.frame(x = c(1, 2)), quiet = TRUE,
+                          run_fn = function(cond, rep) {
+                            if (cond$x == 2) stop("failed cell")
+                            cond$x
+                          })
+  expect_output(print(res), "<agent_experiment \\| 2 cell\\(s\\) \\| 1 failed")
+})

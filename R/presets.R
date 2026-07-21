@@ -284,8 +284,8 @@ as.data.frame.agent_focus_group <- function(x, ...) {
 #'
 #' The interviewer works through a question list (or drafts one), asking one
 #' question at a time with an optional adaptive follow-up probing the
-#' respondent's previous answer. Returns a tidy question/answer frame, the
-#' format interview studies analyze.
+#' respondent's previous answer. The returned object carries the tidy
+#' question/answer frame in `$qa`.
 #'
 #' @param interviewer,respondent [Agent]s.
 #' @param topic Interview topic.
@@ -298,8 +298,9 @@ as.data.frame.agent_focus_group <- function(x, ...) {
 #'   `NULL` uses `getOption("LLMRagent.msg_mode")`. See [conversation()].
 #' @param quiet FALSE prints the exchange live.
 #' @param ... Passed to the underlying LLMR calls.
-#' @return A tibble: `order`, `type` ("scripted" or "probe"), `question`,
-#'   `answer`.
+#' @return An object of class `agent_interview`: a list with `qa` (a tibble
+#'   with `order`, `type`, `question`, and `answer`), `topic`, and provenance.
+#'   `as.data.frame()` returns `qa`.
 #' @examples
 #' \dontrun{
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.8)

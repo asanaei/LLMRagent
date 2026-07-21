@@ -10,7 +10,7 @@ llm_claim_lint(text, run = NULL, action = c("scope", "error"))
 \item{text}{Character vector of prose to check.}
 
 \item{run}{An object accepted by \code{\link[=as_agent_run]{as_agent_run()}} (supplies the claim type
-and calibration status), or \code{NULL} to treat the text as uncalibrated.}
+named in a scope message), or \code{NULL}.}
 
 \item{action}{\code{"scope"} (append a caveat when a population claim is found) or
 \code{"error"} (raise).}
@@ -19,11 +19,11 @@ and calibration status), or \code{NULL} to treat the text as uncalibrated.}
 The text (a character vector), possibly with a caveat appended.
 }
 \description{
-Checks a piece of text for population-estimate language and, unless the run
-is a calibrated inference (or carries an attached calibration), either
-appends a scope caveat (\code{action = "scope"}, the default) or raises
-\code{llmragent_claim_error} (\code{action = "error"}). Calibrated runs pass through
-unchanged. Used by \code{\link[=report]{report()}}; exported so custom report code can reuse it.
+Checks a piece of text for population-estimate language and either appends a
+scope sentence (\code{action = "scope"}, the default) or raises
+\code{llmragent_claim_error} (\code{action = "error"}). No current claim type
+authorizes population-estimate language. Used by \code{\link[=report]{report()}}; exported so
+custom report code can reuse it.
 }
 \seealso{
 \code{\link[=mark_claim_type]{mark_claim_type()}}, \code{\link[=report]{report()}}

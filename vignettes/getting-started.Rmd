@@ -69,10 +69,11 @@ analyst$chat("Compare the GDPs of Chile and Uruguay using the lookup tool.")
 analyst$trace()   # every model call and tool call, with tokens and timing
 ```
 
-## Budgets: spend ceilings the agent cannot cross
+## Budgets: call ceilings and recorded-use gates
 
-Budgets are checked before each call; the call that would exceed a limit is
-refused with a typed error, so a loop cannot spend without you seeing it.
+The call and tool counters are checked before each actual model round or tool
+execution. Token and elapsed-time limits stop the next round after recorded use
+reaches the gate. A refusal raises a typed error.
 
 ```{r budgets}
 frugal <- agent("Frugal", cfg, budget = budget(max_calls = 2))
@@ -160,6 +161,6 @@ conv$transcript
 From here: `vignette("designed-conversations")` tours the ready-made study
 formats (debates, focus groups, interviews, deliberations);
 `vignette("deliberation-experiment")` runs a complete factorial study with
-`agent_experiment()`; and `vignette("super-brain")` shows strong-plus-cheap
-model orchestration with `think_harder()`. For a per-call audit file of
+`agent_experiment()`; and `vignette("fanout-synthesis")` shows strong-plus-cheap
+model orchestration with `agent_fanout_synthesis()`. For a per-call audit file of
 everything an agent did, turn on `LLMR::llm_log_enable()` before running.

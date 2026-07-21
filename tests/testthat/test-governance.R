@@ -2,15 +2,17 @@
 
 # ---- governed tools ---------------------------------------------------------
 
-test_that("agent_tool is an llmr_tool carrying a governance policy", {
+test_that("agent_tool carries governance as a classed field", {
   t <- agent_tool(function(city) paste0("sunny in ", city),
                   name = "weather", description = "weather",
                   parameters = list(city = list(type = "string")),
                   side_effects = "external", max_calls = 2)
+  expect_s3_class(t, "agent_tool")
   expect_s3_class(t, "llmr_tool")
-  gov <- attr(t, "governance")
+  gov <- t$governance
   expect_identical(gov$side_effects, "external")
   expect_equal(gov$max_calls, 2)
+  expect_null(attr(t, "governance"))
   # the tool runs and respects its own policy
   expect_match(t$fn(city = "Cairo"), "sunny in Cairo")
 })
@@ -21,23 +23,31 @@ test_that("a governed tool refuses calls beyond max_calls", {
   expect_match(t$fn(), "BLOCKED")    # second call refused, not executed
 })
 
-test_that("a governed tool truncates oversized results", {
-  t <- agent_tool(function() paste(rep("x", 1000), collapse = ""),
-                  name = "big", description = "big", max_bytes = 50)
-  out <- t$fn()
-  expect_true(grepl("truncated", out))
-  expect_lte(nchar(out), 120)
-})
-
 test_that("max_bytes is enforced in bytes, on character boundaries", {
   # a multibyte payload: each character is 2 bytes in UTF-8
-  t <- agent_tool(function() paste(rep("é", 100), collapse = ""),
+  t <- agent_tool(function() paste(rep("\u00e9", 100), collapse = ""),
                   name = "wide", description = "wide", max_bytes = 50)
   out <- t$fn()
   expect_true(grepl("truncated", out))
-  kept <- sub(" \\.\\.\\..*$", "", out)
-  expect_lte(nchar(kept, type = "bytes"), 50)   # the BYTE cap holds
-  expect_true(all(strsplit(kept, "")[[1]] == "é"))  # no split code point
+  expect_lte(nchar(out, type = "bytes"), 50)
+  kept <- sub(" \\[truncated\\]$", "", out)
+  expect_true(all(strsplit(kept, "")[[1]] == "\u00e9"))  # no split code point
+})
+
+test_that("timeout_s is enforced by the configured backend", {
+  skip_if_not_installed("callr")
+  t <- agent_tool(function() { Sys.sleep(2); "late" },
+                  name = "slow", description = "slow", timeout_s = 0.05)
+  expect_match(t$fn(), "timed out")
+})
+
+test_that("timeout_s is refused when no backend is available", {
+  testthat::local_mocked_bindings(
+    .agent_tool_timeout_backend = function() NULL,
+    .package = "LLMRagent")
+  expect_error(
+    agent_tool(function() "x", name = "x", description = "x", timeout_s = 1),
+    "requires the 'callr' package")
 })
 
 test_that("budget() validates its limits", {
@@ -113,6 +123,42 @@ test_that("a tool-stage guardrail inspects executed tool calls", {
   expect_error(a2$chat("look it up"), class = "llmragent_guardrail_block")
 })
 
+test_that("a blocking tool guardrail prevents the tool side effect", {
+  withr::local_envvar(GROQ_API_KEY = "test-key-not-real")
+  tool_resp <- structure(list(
+    text = "", provider = "fake", model = "m", model_version = "m",
+    finish_reason = "tool",
+    usage = list(sent = 5L, rec = 1L, total = 6L,
+                 reasoning = NA_integer_, cached = NA_integer_),
+    response_id = "r", duration_s = 0.01,
+    raw = list(choices = list(list(message = list(
+      content = "", tool_calls = list(list(
+        id = "call_1", type = "function",
+        `function` = list(name = "write", arguments = '{}')))))))
+  ), class = "llmr_response")
+  ran <- FALSE
+  tool <- agent_tool(function() { ran <<- TRUE; "written" },
+                     name = "write", description = "write")
+  g <- guardrail(
+    "no_write",
+    function(payload, context) {
+      if (identical(context$phase, "pre") && identical(payload$name, "write")) {
+        "writes are blocked"
+      } else {
+        TRUE
+      }
+    },
+    stage = "tool")
+  a <- agent("G", LLMR::llm_config("groq", "fake"), tools = list(tool),
+             guardrails = guardrails(g), quiet = TRUE)
+
+  with_stub_llmr("call_llm_robust", function(config, messages, ...) tool_resp, {
+    expect_error(a$chat("write it"), class = "llmragent_guardrail_block")
+  })
+  expect_false(ran)
+  expect_identical(a$usage()$calls, 1L)
+})
+
 test_that("a blocked output is not written to memory", {
   g <- guardrail("block_out", function(payload, context) "always blocks",
                  stage = "output")
@@ -186,7 +232,10 @@ test_that("approve + resume runs the tool and completes", {
     cp <- approve_tool_call(cp, "approve")
     resume_run(cp)
   })
-  expect_match(as.character(out), "All done after approval")
+  expect_s3_class(out, "agent_resume_result")
+  expect_match(out$text, "All done after approval")
+  expect_s3_class(out$agent, "Agent")
+  expect_s3_class(out$checkpoint, "llmragent_checkpoint")
   expect_true(ran$called)                  # the approved tool actually ran
   expect_equal(ran$arg, 1)                 # with the model's argument
   # and the tool result was spliced into the conversation sent on resume
@@ -223,9 +272,9 @@ test_that("rejecting a tool feeds a denial and does not run it", {
 
 test_that("human_gate(tool) sets the approval requirement", {
   t <- agent_tool(function() "x", "t", "d")
-  expect_false(attr(t, "governance")$requires_approval)
+  expect_false(t$governance$requires_approval)
   t2 <- human_gate(t, prompt = "ok?")
-  expect_true(attr(t2, "governance")$requires_approval)
+  expect_true(t2$governance$requires_approval)
 })
 
 # ---- budgets bind across and inside tool loops ------------------------------
@@ -278,6 +327,37 @@ test_that("the pausable (gated) tool loop enforces max_tool_calls too", {
   expect_identical(n_free, 2L)
 })
 
+test_that("max_calls stops a native tool loop before the next model round", {
+  withr::local_envvar(GROQ_API_KEY = "test-key-not-real")
+  tool_resp <- structure(list(
+    text = "", provider = "fake", model = "m", model_version = "m",
+    finish_reason = "tool",
+    usage = list(sent = 5L, rec = 1L, total = 6L,
+                 reasoning = NA_integer_, cached = NA_integer_),
+    response_id = "r", duration_s = 0.01,
+    raw = list(choices = list(list(message = list(
+      content = "", tool_calls = list(list(
+        id = "call_1", type = "function",
+        `function` = list(name = "ping", arguments = '{}')))))))
+  ), class = "llmr_response")
+  rounds <- 0L
+  tool_calls <- 0L
+  tool <- agent_tool(function() { tool_calls <<- tool_calls + 1L; "ok" },
+                     name = "ping", description = "ping")
+  a <- agent("B", LLMR::llm_config("groq", "fake"), tools = list(tool),
+             budget = budget(max_calls = 2), quiet = TRUE)
+
+  with_stub_llmr("call_llm_robust", function(config, messages, ...) {
+    rounds <<- rounds + 1L
+    tool_resp
+  }, {
+    expect_error(a$chat("keep calling"), class = "llmragent_budget_error")
+  })
+  expect_identical(rounds, 2L)
+  expect_identical(tool_calls, 2L)
+  expect_identical(a$usage()$calls, 2L)
+})
+
 test_that("gated tools refuse providers the native loop cannot speak", {
   gated <- agent_tool(function() "x", name = "danger", description = "d",
                       requires_approval = TRUE)
@@ -322,7 +402,7 @@ test_that("resume answers every call of a multi-tool turn (OpenAI shape)", {
     expect_false(ran_free)                     # nothing ran before the gate
     resume_run(approve_tool_call(cp, "approve"))
   })
-  expect_match(as.character(out), "done")
+  expect_match(out$text, "done")
   expect_true(ran_free)                        # the trailing free call ran
   ids <- vapply(captured, function(m) as.character(m$tool_call_id %||% ""), "")
   expect_true(all(c("call_g", "call_f") %in% ids))   # both calls answered
@@ -358,7 +438,7 @@ test_that("resume restores already-executed results (Anthropic shape)", {
                    llmragent_pending_approval = function(e) e$checkpoint)
     resume_run(approve_tool_call(cp, "approve"))
   })
-  expect_match(as.character(out), "done")
+  expect_match(out$text, "done")
   # the resumed user turn carries a tool_result for BOTH call ids
   result_ids <- unlist(lapply(captured, function(m) {
     if (!is.list(m$content)) return(character(0))
@@ -428,7 +508,7 @@ test_that("resume without agent_state still drives the serialized tools", {
     cp$agent_state <- NULL                    # e.g. a checkpoint built without an agent
     resume_run(approve_tool_call(cp, "approve"))
   })
-  expect_match(as.character(out), "done")
+  expect_match(out$text, "done")
   expect_true(ran_free)   # the continuation could still execute tools
 })
 
@@ -458,7 +538,7 @@ test_that("an edited approval records the edited arguments in the history", {
     resume_run(approve_tool_call(cp, "edit", edit = list(x = 42)))
   })
   expect_equal(ran$arg, 42)                        # the tool ran the edit
-  ag2 <- attr(out, "agent")
+  ag2 <- out$agent
   tl <- tibble::as_tibble(as_agent_run(ag2), level = "tool")
   args <- tl$arguments[tl$name == "danger"]
   expect_true(any(grepl("42", args)))              # the history records the edit

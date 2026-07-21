@@ -1,6 +1,6 @@
 # agent_run.R -----------------------------------------------------------------
 # The unified run object. Every high-level result (a chat agent, a conversation,
-# a preset, a pipeline, an experiment, a think_harder() result) converts to an
+# a preset, a pipeline, an experiment, a fanout synthesis result) converts to an
 # `agent_run` via as_agent_run(). The substrate (span records) is captured
 # eagerly and cheaply during a run; the run object and its tidy views are
 # projected on demand, so the trivial agent$chat("hi") path allocates nothing
@@ -29,7 +29,6 @@ NULL
       agents       = prov$agents %||% list(),
       created_at   = prov$created_at %||% format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
       llmr_log     = prov$llmr_log %||% NULL,
-      calibration  = prov$calibration %||% NULL,
       claim_type   = prov$claim_type %||% NA_character_,
       pkg_versions = prov$pkg_versions %||% .llmragent_pkg_versions()
     ),
@@ -41,16 +40,6 @@ NULL
   tibble::tibble(agent_id = character(0), name = character(0),
                  provider = character(0), model = character(0),
                  persona_hash = character(0))
-}
-
-# Normalize anything as_agent_run() accepts into a provenance list (the input to
-# .new_agent_run). Used by hash_workflow()/agent_manifest() too.
-#' @keywords internal
-#' @noRd
-.as_provenance <- function(x) {
-  if (inherits(x, "agent_run")) return(unclass(x))
-  r <- as_agent_run(x)
-  unclass(r)
 }
 
 # ---- the generic ------------------------------------------------------------
@@ -68,7 +57,8 @@ NULL
 #' bare [Agent], the result is a live view of the agent's session so far.
 #'
 #' @param x An [Agent]; a conversation, debate, focus group, interview, or
-#'   deliberation; an `agent_pipeline_run`; a `super_brain`; an `agent_experiment`;
+#'   deliberation; an `agent_pipeline_run`; an `agent_fanout_result`; an
+#'   `agent_experiment`;
 #'   or a [call_llm_par()]-style result frame.
 #' @param ... Unused.
 #' @return An object of class `agent_run`.
@@ -86,7 +76,7 @@ as_agent_run.default <- function(x, ...) {
   cls <- paste(class(x), collapse = ", ")
   stop(sprintf(paste0(
     "Cannot convert an object of class <%s> to an agent_run. Pass an Agent, a ",
-    "conversation/preset result, a pipeline/experiment/think_harder result, or ",
+    "conversation/preset result, a pipeline/experiment/fanout result, or ",
     "a call_llm_par() frame."), cls), call. = FALSE)
 }
 
@@ -313,7 +303,6 @@ print.agent_run <- function(x, ...) {
     cat("  agents: ", paste(x$participants$name, collapse = ", "), "\n", sep = "")
   }
   if (!is.na(x$claim_type)) cat("  claim type: ", x$claim_type, "\n", sep = "")
-  cat("  calibration: ", if (is.null(x$calibration)) "none" else "attached", "\n", sep = "")
   cat("  levels: as_tibble(run, 'utterance'|'event'|'call'|'tool'|'state')\n")
   invisible(x)
 }

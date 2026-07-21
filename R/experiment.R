@@ -100,6 +100,19 @@ agent_experiment <- function(design, run_fn, reps = 1L,
   out
 }
 
+#' @rdname agent_experiment
+#' @param x An `agent_experiment` object.
+#' @param ... Ignored.
+#' @export
+print.agent_experiment <- function(x, ...) {
+  n_failed <- if ("error" %in% names(x)) sum(!is.na(x$error)) else 0L
+  n_reps <- if ("rep" %in% names(x)) length(unique(x$rep)) else NA_integer_
+  cat(sprintf("<agent_experiment | %d cell(s) | %d failed%s>\n",
+              nrow(x), n_failed,
+              if (is.na(n_reps)) "" else sprintf(" | %d replication(s)", n_reps)))
+  invisible(x)
+}
+
 #' @exportS3Method as_agent_run agent_experiment
 as_agent_run.agent_experiment <- function(x, ...) {
   # Recurse into each cell's result: when a cell returned a classed result that

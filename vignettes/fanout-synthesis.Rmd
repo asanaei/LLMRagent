@@ -1,8 +1,8 @@
 ---
-title: "Strong planner, cheap workers: one strong model coordinating many cheap ones"
+title: "Fan-out synthesis: one strong model coordinating many cheap ones"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Strong planner, cheap workers: one strong model coordinating many cheap ones}
+  %\VignetteIndexEntry{Fan-out synthesis: one strong model coordinating many cheap ones}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -16,7 +16,7 @@ knitr::opts_chunk$set(
 
 Strong models cost the most on the task where cheap models are weakest: broad
 exploration that then has to be synthesized. Cheap models produce many
-independent drafts but combine them poorly. `think_harder()` uses this
+independent drafts but combine them poorly. `agent_fanout_synthesis()` uses this
 division of labor:
 
 1. **Plan.** The strong model decomposes the problem into genuinely different
@@ -39,7 +39,7 @@ library(LLMRagent)
 strong <- LLMR::llm_config("deepseek", "deepseek-reasoner")
 cheap  <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.8)
 
-out <- think_harder(
+out <- agent_fanout_synthesis(
   "A mid-sized university wants to raise its course-evaluation response rate
    from 35% to 70% within two semesters, without making responses mandatory
    and without raffles or payments. Design the most promising intervention
@@ -68,7 +68,7 @@ remedy is a better problem statement, not more workers. Second, the pattern
 composes with `LLMR::llm_log_enable()`: turn it on beforehand and the whole
 orchestration, every worker included, is written to one auditable JSONL file.
 
-`think_harder()` is a fixed pipeline: plan, work, synthesize, verify. When
+`agent_fanout_synthesis()` is a fixed pipeline: plan, work, synthesize, verify. When
 you want the strong model to decide for itself when and whom to consult,
 build the same arrangement directly with `agent_as_tool()`: give a strong
 supervisor several cheap specialists as tools and let it route the work.

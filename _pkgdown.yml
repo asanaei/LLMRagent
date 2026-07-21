@@ -11,7 +11,7 @@ home:
 reference:
 - title: Agents
   desc: >
-    One agent: a persona, a model, tools, memory, and hard budgets.
+    One agent: a persona, a model, tools, memory, and declared budgets.
   contents:
   - agent
   - Agent-class
@@ -26,7 +26,7 @@ reference:
 - title: Conversations and study presets
   desc: >
     Multi-agent dialogue over a shared transcript, and ready-made formats
-    that return analysis-ready tibbles.
+    that return classed results with analysis-ready tables.
   contents:
   - conversation
   - debate
@@ -36,22 +36,21 @@ reference:
 - title: Experiments
   contents:
   - agent_experiment
-  - think_harder
+  - agent_fanout_synthesis
 - title: Persistence
   contents:
   - save_agent
   - load_agent
 - title: Provenance and reproducibility
   desc: >
-    Turn any run into one unified object, hash its inputs, and seal a
-    replayable archive.
+    Turn any run into one unified object, hash its declared inputs, and seal a
+    privacy-preserving verification archive.
   contents:
   - as_agent_run
   - agent_manifest
   - archive_agent_study
   - hash_persona
   - hash_tool_spec
-  - hash_workflow
 - title: Governance
   desc: >
     Declared tool side effects, guardrails, human approval gates, and
@@ -66,17 +65,14 @@ reference:
   - check_state_leakage
 - title: Validity
   desc: >
-    Anti-essentialist personas, claim-type discipline, a calibration
-    bridge, and robustness batteries.
+    Anti-essentialist personas, claim-type discipline, and robustness
+    batteries.
   contents:
   - persona_frame
   - persona_variants
   - persona_audit
   - mark_claim_type
   - llm_claim_lint
-  - agent_calibrate
-  - attach_calibration
-  - as_llmrcontent_validation
   - agent_robustness
   - vary_models
   - vary_temperature
@@ -96,19 +92,11 @@ reference:
   - fork_workflow
   - replay_run
   - workflow_from_pipeline
-- title: External tools and simulation
+- title: External tools and inspection
   desc: >
-    A governed MCP client, sandboxed tools, social-simulation
-    scaffolding, and an HTML run inspector.
+    A governed MCP client and an HTML run inspector.
   contents:
   - mcp_tools
-  - sandbox_tool
-  - agent_population
-  - society
-  - step_interaction
-  - collect_measures
-  - exposure_matrix
-  - contamination_report
   - view_run
 - title: Diagnostics and reporting
   desc: >
@@ -119,11 +107,9 @@ reference:
   - reexports
   - diagnostics.agent_run
   - diagnostics.agent_experiment
-  - diagnostics.agent_calibration
   - diagnostics.persona_audit
   - report.agent_run
   - report.agent_experiment
-  - report.society
   - reset.Agent
 - title: Package
   contents:
@@ -135,12 +121,12 @@ articles:
   contents:
   - getting-started
   - designed-conversations
-  - super-brain
+  - fanout-synthesis
   - deliberation-experiment
 - title: Doing it rigorously
   navbar: Rigor
   contents:
   - provenance-and-archiving
   - governed-tools-and-human-review
-  - validity-robustness-and-calibration
+  - validity-robustness-and-claims
   - workflows

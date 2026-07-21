@@ -13,7 +13,7 @@ vary_models(...)
 
 vary_temperature(...)
 
-vary_prompt(..., prompt = NULL, paraphrase = NULL, .config = NULL)
+vary_prompt(..., prompt = NULL, paraphrase = NULL, config = NULL)
 
 vary_persona(...)
 
@@ -22,7 +22,7 @@ vary_option_order(..., seed = 110)
 \arguments{
 \item{...}{For \code{vary_models}/\code{vary_temperature}, the levels (model names or
 temperatures). For \code{vary_prompt}, either named template strings or
-\code{paraphrase = n} with \verb{.config =} to generate \code{n} paraphrases. For
+\code{paraphrase = n} with \verb{config =} to generate \code{n} paraphrases. For
 \code{vary_persona}, persona variants (strings or a \code{persona_set}). For
 \code{vary_option_order}, the orders (\code{"as_is"}, \code{"reverse"}, \code{"random"}).}
 
@@ -33,7 +33,7 @@ axis's levels (including the original as the baseline), so \code{run_fn}'s
 
 \item{paraphrase}{For \code{vary_prompt}: number of paraphrases to generate.}
 
-\item{.config}{For \code{vary_prompt(paraphrase=)}: a generative config used once
+\item{config}{For \code{vary_prompt(paraphrase=)}: a generative config used once
 to draft the paraphrases (hashed into the manifest).}
 
 \item{seed}{For \code{vary_option_order}: RNG seed for the random permutation.}

@@ -26,10 +26,11 @@ test_that("load_agent rejects foreign files", {
 })
 
 test_that("guardrails survive save/load (no silent policy bypass)", {
-  g <- guardrail("no_secret",
-                 function(payload, context)
-                   if (grepl("secret", payload)) "mentions secret" else TRUE,
-                 stage = "input")
+  check <- function(payload, context) {
+    if (grepl("secret", payload)) "mentions secret" else TRUE
+  }
+  environment(check) <- baseenv()
+  g <- guardrail("no_secret", check, stage = "input")
   a <- fake_agent("Guarded", list("ok"), guardrails = guardrails(g))
   path <- tempfile(fileext = ".rds")
   on.exit(unlink(path))

@@ -1,4 +1,4 @@
-test_that("think_harder runs plan -> work -> synthesize -> verify offline", {
+test_that("agent_fanout_synthesis runs plan, work, synthesis, and verification", {
   plan_json <- '{"approaches": [
     {"title": "approach A", "instructions": "try A"},
     {"title": "approach B", "instructions": "try B"}
@@ -25,9 +25,12 @@ test_that("think_harder runs plan -> work -> synthesize -> verify offline", {
 
   with_stub_llmr("call_llm_robust", stub_robust, {
     with_stub_llmr("call_llm_par", stub_par, {
-      out <- think_harder("hard problem", strong, cheap,
-                          n_approaches = 2, quiet = TRUE)
-      expect_s3_class(out, "super_brain")
+      out <- agent_fanout_synthesis("hard problem", strong, cheap,
+                                    n_approaches = 2, quiet = TRUE)
+      expect_s3_class(out, "agent_fanout_result")
+      expect_identical(out$provenance$kind, "agent_fanout_synthesis")
+      expect_identical(as_agent_run(out)$kind, "agent_fanout_synthesis")
+      expect_output(print(out), "agent_fanout_result")
       expect_equal(nrow(out$plan), 2L)
       expect_equal(nrow(out$workers), 2L)
       expect_true(out$revised)
@@ -52,8 +55,8 @@ test_that("a sound answer skips revision", {
   }
   with_stub_llmr("call_llm_robust", stub_robust, {
     with_stub_llmr("call_llm_par", stub_par, {
-      out <- think_harder("p", LLMR::llm_config("a", "m"),
-                          LLMR::llm_config("b", "m"), quiet = TRUE)
+      out <- agent_fanout_synthesis("p", LLMR::llm_config("a", "m"),
+                                    LLMR::llm_config("b", "m"), quiet = TRUE)
       expect_false(out$revised)
       expect_identical(out$answer, "final answer")
     })

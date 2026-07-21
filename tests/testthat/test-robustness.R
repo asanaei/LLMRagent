@@ -1,5 +1,14 @@
 # Stage 3: the robustness battery. Offline via fake_agent cells.
 
+test_that("single-config public helpers use the config formal", {
+  helpers <- list(persona_variants, persona_audit, vary_prompt,
+                  agent_robustness)
+  expect_true(all(vapply(helpers, function(f) "config" %in% names(formals(f)),
+                         logical(1))))
+  expect_false(any(vapply(helpers, function(f) ".config" %in% names(formals(f)),
+                          logical(1))))
+})
+
 test_that("agent_robustness varies an axis and summarizes by axis", {
   # a run_fn that returns a value depending on the temperature axis, so we can
   # see instability appear deterministically. perturb$config carries the temp.
@@ -11,7 +20,7 @@ test_that("agent_robustness varies an axis and summarizes by axis", {
     run_fn = run_fn,
     vary = list(temperature = c("0", "1")),
     measure = function(r) r,
-    .config = LLMR::llm_config("groq", "fake")
+    config = LLMR::llm_config("groq", "fake")
   )
   expect_s3_class(batt, "agent_robustness")
   expect_true(all(c("axis", "level", "instability", "dispersion",
@@ -27,7 +36,7 @@ test_that("a 2-argument run_fn still runs (perturb optional)", {
   run_fn <- function(cond, rep) "stable"   # ignores perturbation
   batt <- agent_robustness(run_fn, vary = list(model = c("m1", "m2")),
                            measure = function(r) r,
-                           .config = LLMR::llm_config("groq", "fake"))
+                           config = LLMR::llm_config("groq", "fake"))
   # identical measure across all cells -> zero instability
   expect_equal(max(batt$by_axis$instability), 0)
   expect_false(batt$overall$fragile)
@@ -47,7 +56,7 @@ test_that("the perturb closure applies model/temperature/persona/order", {
     vary = list(model = c("mZ"), temperature = c("0.5"),
                 persona = c("is cautious"), option_order = c("reverse")),
     measure = function(r) r,
-    .config = LLMR::llm_config("groq", "fake"))
+    config = LLMR::llm_config("groq", "fake"))
   expect_identical(captured$model, "mZ")
   expect_equal(captured$temp, 0.5)
   expect_match(captured$persona, "BASE")
@@ -59,7 +68,7 @@ test_that("diagnostics(agent_robustness) returns the overall summary", {
   run_fn <- function(cond, rep) "z"
   batt <- agent_robustness(run_fn, vary = list(model = c("a", "b")),
                            measure = function(r) r,
-                           .config = LLMR::llm_config("groq", "fake"))
+                           config = LLMR::llm_config("groq", "fake"))
   d <- diagnostics(batt)
   expect_true(all(c("n_cells", "failure_rate", "worst_axis", "fragile") %in% names(d)))
   expect_equal(nrow(d), 1L)
@@ -75,7 +84,7 @@ test_that("vary_persona accepts a persona_set", {
   }
   batt <- agent_robustness(run_fn, vary = list(persona = vary_persona(pset)),
                            measure = function(r) r,
-                           .config = LLMR::llm_config("groq", "fake"))
+                           config = LLMR::llm_config("groq", "fake"))
   expect_true(all(batt$cells$measure_value == "frame"))
 })
 
@@ -85,7 +94,7 @@ test_that("a numeric measure gets an interval agreement alpha (LLMR >= 0.8.9)", 
   run_fn <- function(cond, rep) if (as.character(cond$temperature) == "0") 0.9 else 0.2
   batt <- agent_robustness(run_fn,
     vary = list(temperature = c("0", "1"), block = c("a", "b")),
-    measure = function(r) r, .config = LLMR::llm_config("groq", "fake"))
+    measure = function(r) r, config = LLMR::llm_config("groq", "fake"))
   ta <- batt$by_axis$agreement_alpha[batt$by_axis$axis == "temperature"]
   expect_false(any(is.na(ta)))          # interval alpha computed, not skipped
   expect_true(is.numeric(ta))

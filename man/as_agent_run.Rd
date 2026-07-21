@@ -12,7 +12,8 @@ as_agent_run(x, ...)
 }
 \arguments{
 \item{x}{An \link{Agent}; a conversation, debate, focus group, interview, or
-deliberation; an \code{agent_pipeline_run}; a \code{super_brain}; an \code{agent_experiment};
+deliberation; an \code{agent_pipeline_run}; an \code{agent_fanout_result}; an
+\code{agent_experiment};
 or a \code{\link[LLMR:call_llm_par]{LLMR::call_llm_par()}}-style result frame.}
 
 \item{...}{Unused.}

@@ -138,12 +138,12 @@ as.character.persona_frame <- function(x, ...) {
 #'
 #' Turn one [persona_frame()] into a designed *set* of personas. Two modes:
 #'
-#' - **Enumerated** (default, `.config = NULL`): `vary` is a named list of level
+#' - **Enumerated** (default, `config = NULL`): `vary` is a named list of level
 #'   vectors and the result is their full Cartesian product. Each combination is
 #'   rendered by appending the varied attributes to the base brief in plain,
 #'   factual language (no stereotyping copula), so the design is legible and the
 #'   base text is never rewritten.
-#' - **Generative** (`.config` is a generative `LLMR::llm_config()` and `n` is
+#' - **Generative** (`config` is a generative `LLMR::llm_config()` and `n` is
 #'   given): one structured call asks the model for `n` individuated briefs that
 #'   vary `names(vary)`, under a hard-coded anti-essentialism instruction. Use
 #'   this when you want fluent, non-templated briefs; audit the result with
@@ -160,7 +160,7 @@ as.character.persona_frame <- function(x, ...) {
 #'   "tolerant"))`); generative mode reads only the names.
 #' @param n Number of briefs to generate (generative mode only). Ignored when
 #'   enumerating.
-#' @param .config Optional generative `LLMR::llm_config()`. When `NULL`
+#' @param config Optional generative `LLMR::llm_config()`. When `NULL`
 #'   (default), the set is enumerated offline.
 #' @return An object of class `persona_set`: a tibble with a `persona` list
 #'   column of [persona_frame()] objects, an `id` column (each frame's hash), a
@@ -176,11 +176,11 @@ as.character.persona_frame <- function(x, ...) {
 #' \dontrun{
 #' cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
 #' gen <- persona_variants(base, vary = list(age = NA, occupation = NA),
-#'                         n = 5, .config = cfg)
+#'                         n = 5, config = cfg)
 #' persona_audit(gen)
 #' }
 #' @export
-persona_variants <- function(p, vary, n = NULL, .config = NULL) {
+persona_variants <- function(p, vary, n = NULL, config = NULL) {
   if (!inherits(p, "persona_frame")) {
     stop("`p` must be a persona_frame() (the base persona).", call. = FALSE)
   }
@@ -189,11 +189,11 @@ persona_variants <- function(p, vary, n = NULL, .config = NULL) {
   }
   attrs <- names(vary)
 
-  if (!is.null(.config)) {
+  if (!is.null(config)) {
     if (is.null(n) || !is.numeric(n) || length(n) != 1L || n < 1L) {
-      stop("Generative mode (a non-NULL `.config`) needs `n` >= 1.", call. = FALSE)
+      stop("Generative mode (a non-NULL `config`) needs `n` >= 1.", call. = FALSE)
     }
-    return(.persona_variants_generative(p, attrs, as.integer(n), .config))
+    return(.persona_variants_generative(p, attrs, as.integer(n), config))
   }
   .persona_variants_enumerated(p, vary)
 }
@@ -240,7 +240,7 @@ persona_variants <- function(p, vary, n = NULL, .config = NULL) {
 # under a hard-coded anti-essentialism instruction.
 #' @keywords internal
 #' @noRd
-.persona_variants_generative <- function(p, attrs, n, .config) {
+.persona_variants_generative <- function(p, attrs, n, config) {
   item_props <- c(
     list(text = list(type = "string",
                      description = "The persona brief: an individuated character sketch.")),
@@ -276,7 +276,7 @@ persona_variants <- function(p, vary, n = NULL, .config = NULL) {
     "attribute fields (", paste(attrs, collapse = ", "),
     ") with the value you chose for that brief.")
 
-  cfg <- LLMR::enable_structured_output(.config, schema = schema)
+  cfg <- LLMR::enable_structured_output(config, schema = schema)
   resp <- LLMR::call_llm_robust(cfg, c(system = sys, user = usr))
   parsed <- LLMR::llm_parse_structured(resp)
   rows <- parsed$personas %||% list()
@@ -352,7 +352,7 @@ print.persona_set <- function(x, ...) {
 #'   built-in lexicon of essentializing and demographic-as-destiny patterns.
 #'   A brief that says a demographic *naturally* or *always* thinks something
 #'   is flagged.
-#' - **Model** (optional, when `.config` is a generative `LLMR::llm_config()`):
+#' - **Model** (optional, when `config` is a generative `LLMR::llm_config()`):
 #'   each brief is scored on caricature and essentialism on a 0--1 scale via
 #'   [LLMR::llm_judge()]. Without a config these scores are `NA`.
 #'
@@ -362,7 +362,7 @@ print.persona_set <- function(x, ...) {
 #'
 #' @param p_or_set A [persona_frame()], a [persona_variants()] result
 #'   (`persona_set`), or a list of `persona_frame` objects.
-#' @param .config Optional generative `LLMR::llm_config()` for model scoring.
+#' @param config Optional generative `LLMR::llm_config()` for model scoring.
 #'   When `NULL` (default), only the lexical layer runs and model scores are
 #'   `NA`.
 #' @param dimensions Optional character vector naming the qualities to score
@@ -380,10 +380,10 @@ print.persona_set <- function(x, ...) {
 #' diagnostics(persona_audit(set))
 #' \dontrun{
 #' cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
-#' persona_audit(set, .config = cfg)   # adds model caricature scores
+#' persona_audit(set, config = cfg)   # adds model caricature scores
 #' }
 #' @export
-persona_audit <- function(p_or_set, .config = NULL, dimensions = NULL) {
+persona_audit <- function(p_or_set, config = NULL, dimensions = NULL) {
   frames <- .collect_personas(p_or_set)
   ids   <- vapply(frames, function(f) f$hash %||% NA_character_, character(1))
   texts <- vapply(frames, function(f) f$text %||% "", character(1))
@@ -398,8 +398,8 @@ persona_audit <- function(p_or_set, .config = NULL, dimensions = NULL) {
 
   caricature   <- rep(NA_real_, length(frames))
   essentialism <- rep(NA_real_, length(frames))
-  if (!is.null(.config) && length(frames)) {
-    scored <- .persona_model_scores(texts, .config, dimensions)
+  if (!is.null(config) && length(frames)) {
+    scored <- .persona_model_scores(texts, config, dimensions)
     caricature   <- scored$caricature
     essentialism <- scored$essentialism
   }
@@ -470,7 +470,7 @@ persona_audit <- function(p_or_set, .config = NULL, dimensions = NULL) {
 # nothing parseable (leaves NA).
 #' @keywords internal
 #' @noRd
-.persona_model_scores <- function(texts, .config, dimensions = NULL) {
+.persona_model_scores <- function(texts, config, dimensions = NULL) {
   dims <- dimensions %||% c("caricature", "out-group homogeneity", "essentialism")
   dim_txt <- paste(dims, collapse = ", ")
   na_out <- list(caricature   = rep(NA_real_, length(texts)),
@@ -485,7 +485,7 @@ persona_audit <- function(p_or_set, .config = NULL, dimensions = NULL) {
       " Consider these failure modes: ", dim_txt,
       ". Return your reasoning and a single numeric score in [0, 1].")
     judged <- tryCatch(
-      LLMR::llm_judge(df, .target = text, .config = .config,
+      LLMR::llm_judge(df, .target = text, .config = config,
                       prompt = prompt, .tags = c("reasoning", "score")),
       error = function(e) NULL)
     if (is.null(judged)) return(rep(NA_real_, length(texts)))

@@ -8,22 +8,21 @@ agent_manifest(run)
 }
 \arguments{
 \item{run}{An object accepted by \code{\link[=as_agent_run]{as_agent_run()}} (a chat agent, a
-conversation, a preset, a pipeline, an experiment, a \code{think_harder()}
-result, or an \code{agent_run}).}
+conversation, a preset, a pipeline, an experiment, an
+\code{agent_fanout_result}, or an \code{agent_run}).}
 }
 \value{
 An object of class \code{agent_manifest} (a list); see Details. Print shows
 the short hash, kind, models, and headline counts.
 }
 \description{
-One object tying together the design, personas, tools, workflow, served model
-identifiers, generation parameters, and package versions, with a
-\code{manifest_hash} that changes when any of those changes. It does not hash the
-transcript or replies (those are outcomes, not identity), so two runs of the
-same design with different sampled replies share a \code{manifest_hash} but differ
-in their per-call records.
+One object tying together the recorded design, personas, declared tool
+specifications, orchestration metadata, served model identifiers, generation
+parameters, and package versions. Its \code{manifest_hash} changes when a hashed
+component changes. It does not hash transcripts, replies, or unrecorded
+ambient state such as values captured by a tool closure.
 }
 \seealso{
-\code{\link[=hash_persona]{hash_persona()}}, \code{\link[=hash_tool_spec]{hash_tool_spec()}}, \code{\link[=hash_workflow]{hash_workflow()}},
-\code{\link[=archive_agent_study]{archive_agent_study()}}, \code{\link[LLMR:llm_hash]{LLMR::llm_hash()}}
+\code{\link[=hash_persona]{hash_persona()}}, \code{\link[=hash_tool_spec]{hash_tool_spec()}}, \code{\link[=archive_agent_study]{archive_agent_study()}},
+\code{\link[LLMR:llm_hash]{LLMR::llm_hash()}}
 }

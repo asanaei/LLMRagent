@@ -5,14 +5,16 @@
 
 #' Spending and effort limits for an agent
 #'
-#' Budgets are hard limits, checked before every model call. When a limit
-#' would be exceeded, the agent raises a condition of class
-#' `llmragent_budget_error` instead of calling the API, so a runaway loop
-#' cannot spend without leaving a record. Catch it with `tryCatch()` if you want
-#' graceful degradation.
+#' Call, tool-call, and elapsed-time limits are checked before every model
+#' round. When one is exhausted, the agent raises a condition of class
+#' `llmragent_budget_error` without making the next call. `max_tokens` is a
+#' recorded-use gate: the agent stops before the next call once recorded usage
+#' reaches the limit, but one response can take the total past it because the
+#' response's token count is not known in advance.
 #'
 #' @param max_calls Maximum number of model calls.
-#' @param max_tokens Maximum total tokens (sent + received) across calls.
+#' @param max_tokens Stop before the next model call once recorded sent and
+#'   received tokens reach this value.
 #' @param max_tool_calls Maximum executed tool invocations.
 #' @param max_seconds Wall-clock ceiling, measured from the agent's first call.
 #' @return An object of class `agent_budget`.
@@ -143,6 +145,7 @@ Agent <- R6::R6Class(
       private$assert_budget()
       private$run_guardrails("input", text)
       if (self$memory$needs_compaction()) {
+        if (is.null(private$t_first)) private$t_first <- Sys.time()
         t0 <- Sys.time()
         cres <- self$memory$compact(self$config)
         cdur <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
@@ -151,6 +154,7 @@ Agent <- R6::R6Class(
         } else {
           private$trace_add("compact", duration = cdur)
         }
+        private$assert_budget()
       }
       if (isTRUE(stream) && length(self$tools)) {
         warning("Streaming is unavailable for agents with tools; ",
@@ -358,10 +362,13 @@ Agent <- R6::R6Class(
       if (!length(tools)) {
         return(LLMR::call_llm_robust(config, messages, ...))
       }
-      if (.has_gated_tool(tools)) {
-        # An approval-gated tool needs a pausable loop, which LLMR's loop is not.
-        # Use the native loop (built on LLMR's exported primitives); it raises
-        # llmragent_pending_approval when the model calls a gated tool.
+      bounded_budget <- any(is.finite(c(
+        self$budget$max_calls, self$budget$max_tokens,
+        self$budget$max_tool_calls, self$budget$max_seconds)))
+      if (.has_gated_tool(tools) || private$has_tool_guardrails() ||
+          bounded_budget) {
+        # Approval, pre-execution guardrails, and per-round budgets need the
+        # pause points provided by the native loop.
         return(.native_tool_loop(config, messages, tools, agent = self, ...))
       }
       remaining <- self$budget$max_tool_calls - private$n_tool_calls
@@ -481,17 +488,28 @@ Agent <- R6::R6Class(
 
       # a tool loop is several model calls; LLMR reports the aggregate in
       # attr "tool_loop", while tokens(resp) covers only the final call
-      loop <- attr(resp, "tool_loop")
+      loop <- if (is.list(resp)) resp$tool_loop else NULL
+      loop <- loop %||% attr(resp, "tool_loop")
       if (is.list(loop) && !is.null(loop$model_calls)) {
-        private$n_calls <- private$n_calls + max(1L, as.integer(loop$model_calls))
-        sent <- loop$sent; rec <- loop$rec
+        total_calls <- max(1L, as.integer(loop$model_calls))
+        accounted_calls <- as.integer(loop$accounted_model_calls %||% 0L)
+        private$n_calls <- private$n_calls + max(0L, total_calls - accounted_calls)
+        sent <- loop$sent
+        rec <- loop$rec
+        sent_new <- if (is.na(sent %||% NA_integer_)) sent else
+          max(0L, as.integer(sent) - as.integer(loop$accounted_sent %||% 0L))
+        rec_new <- if (is.na(rec %||% NA_integer_)) rec else
+          max(0L, as.integer(rec) - as.integer(loop$accounted_rec %||% 0L))
       } else {
         u <- LLMR::tokens(resp)
         private$n_calls <- private$n_calls + 1L
-        sent <- u$sent; rec <- u$rec
+        sent <- u$sent
+        rec <- u$rec
+        sent_new <- sent
+        rec_new <- rec
       }
-      private$tok_sent <- .add_na0(private$tok_sent, sent)
-      private$tok_rec  <- .add_na0(private$tok_rec, rec)
+      private$tok_sent <- .add_na0(private$tok_sent, sent_new)
+      private$tok_rec  <- .add_na0(private$tok_rec, rec_new)
 
       # The canonical per-call provenance row (16 columns incl. request_hash,
       # served model_version, success). Composing LLMR rather than reinventing.
@@ -502,9 +520,12 @@ Agent <- R6::R6Class(
         error = function(e) NULL)
       ok <- if (is.data.frame(rec_row)) isTRUE(rec_row$success[[1]]) else TRUE
 
-      hist <- attr(resp, "tool_history")
+      hist <- if (is.list(resp)) resp$tool_history else NULL
+      hist <- hist %||% attr(resp, "tool_history")
       if (is.data.frame(hist) && nrow(hist)) {
-        private$n_tool_calls <- private$n_tool_calls + nrow(hist)
+        accounted_tools <- as.integer(loop$accounted_tool_calls %||% 0L)
+        private$n_tool_calls <- private$n_tool_calls +
+          max(0L, nrow(hist) - accounted_tools)
         for (i in seq_len(nrow(hist))) {
           private$span_add(
             "tool", tool = hist$name[i],
@@ -519,7 +540,8 @@ Agent <- R6::R6Class(
           # result. A blocking guardrail aborts the exchange (a poisoned tool
           # result does not silently reach downstream use); every verdict is
           # recorded as a guardrail event.
-          private$run_tool_guardrails(hist$name[i], hist$arguments[i], hist$result[i])
+          private$run_tool_guardrails(hist$name[i], hist$arguments[i],
+                                      hist$result[i], phase = "post")
         }
       }
       private$span_add(
@@ -594,17 +616,23 @@ Agent <- R6::R6Class(
                       record = function(n, s, r) private$guard_record(n, s, r))
     },
 
-    # Run tool-stage guardrails over one executed tool call. The payload is a
-    # list(name, arguments, result); a blocking guardrail aborts the exchange.
-    run_tool_guardrails = function(name, arguments, result) {
+    has_tool_guardrails = function() {
+      gs <- private$guardrails
+      !is.null(gs) && any(vapply(
+        gs, function(g) identical(g$stage, "tool"), logical(1)))
+    },
+
+    # Run tool-stage guardrails immediately before execution or over the
+    # resulting value afterward.
+    run_tool_guardrails = function(name, arguments, result = NULL,
+                                   phase = c("pre", "post")) {
+      phase <- match.arg(phase)
       gs <- private$guardrails
       if (is.null(gs) || !length(gs)) return(invisible(NULL))
-      if (!any(vapply(gs, function(g) identical(g$stage, "tool"), logical(1)))) {
-        return(invisible(NULL))
-      }
+      if (!private$has_tool_guardrails()) return(invisible(NULL))
       payload <- list(name = name, arguments = arguments, result = result)
       .run_guardrails(gs, stage = "tool", payload = payload,
-                      context = list(agent = self$name, phase = "post"),
+                      context = list(agent = self$name, phase = phase),
                       record = function(n, s, r) private$guard_record(n, s, r))
     },
 
@@ -618,23 +646,51 @@ Agent <- R6::R6Class(
                        duration = duration, note = note)
     },
 
+    account_pending_loop = function(agg) {
+      accounted_calls <- as.integer(agg$accounted_model_calls %||% 0L)
+      accounted_sent <- as.integer(agg$accounted_sent %||% 0L)
+      accounted_rec <- as.integer(agg$accounted_rec %||% 0L)
+      accounted_tools <- as.integer(agg$accounted_tool_calls %||% 0L)
+      private$n_calls <- private$n_calls +
+        max(0L, as.integer(agg$model_calls %||% 0L) - accounted_calls)
+      if (isTRUE(agg$saw)) {
+        private$tok_sent <- private$tok_sent +
+          max(0L, as.integer(agg$sent %||% 0L) - accounted_sent)
+        private$tok_rec <- private$tok_rec +
+          max(0L, as.integer(agg$rec %||% 0L) - accounted_rec)
+      }
+      private$n_tool_calls <- private$n_tool_calls +
+        max(0L, as.integer(agg$tool_calls %||% 0L) - accounted_tools)
+      agg$accounted_model_calls <- as.integer(agg$model_calls %||% 0L)
+      agg$accounted_sent <- as.integer(agg$sent %||% 0L)
+      agg$accounted_rec <- as.integer(agg$rec %||% 0L)
+      agg$accounted_tool_calls <- as.integer(agg$tool_calls %||% 0L)
+      agg
+    },
+
+    budget_fail = function(what, detail) {
+      private$trace_add("budget_stop", note = what)
+      rlang::abort(
+        message = sprintf("Agent '%s' budget exceeded: %s (%s).",
+                          self$name, what, detail),
+        class = c("llmragent_budget_error", "error", "condition"))
+    },
+
     assert_budget = function() {
       b <- self$budget
       fail <- function(what, detail) {
-        private$trace_add("budget_stop", note = what)
-        rlang::abort(
-          message = sprintf("Agent '%s' budget exceeded: %s (%s).",
-                            self$name, what, detail),
-          class = c("llmragent_budget_error", "error", "condition"))
+        private$budget_fail(what, detail)
       }
       if (private$n_calls + 1L > b$max_calls) {
         fail("max_calls", sprintf("%d calls made", private$n_calls))
       }
       if ((private$tok_sent + private$tok_rec) >= b$max_tokens) {
-        fail("max_tokens", sprintf("%d tokens used", private$tok_sent + private$tok_rec))
+        fail("max_tokens", sprintf("%d tokens used",
+                                   private$tok_sent + private$tok_rec))
       }
       if (private$n_tool_calls >= b$max_tool_calls) {
-        fail("max_tool_calls", sprintf("%d tool calls made", private$n_tool_calls))
+        fail("max_tool_calls", sprintf("%d tool calls made",
+                                       private$n_tool_calls))
       }
       if (!is.null(private$t_first)) {
         el <- as.numeric(difftime(Sys.time(), private$t_first, units = "secs"))
@@ -659,8 +715,9 @@ Agent <- R6::R6Class(
 #' - **Failures are errors, not replies.** If a call fails, the typed LLMR
 #'   condition propagates; nothing is written into memory, so an API hiccup
 #'   is never stored as something the model said.
-#' - **Budgets are checked before, not after.** The agent refuses the call
-#'   that would break the limit, raising `llmragent_budget_error`.
+#' - **Budgets are checked at every call boundary.** Call and tool-call limits
+#'   stop the next round. The token limit stops the next round once recorded
+#'   use reaches it; one response can cross that threshold.
 #'
 #' @param name Display name (used in transcripts).
 #' @param config An `LLMR::llm_config()` for a generative model.

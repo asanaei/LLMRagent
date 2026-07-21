@@ -2,19 +2,28 @@
 % Please edit documentation in R/approval.R
 \name{resume_run}
 \alias{resume_run}
+\alias{as.character.agent_resume_result}
+\alias{print.agent_resume_result}
 \title{Resume a paused run after a tool-approval decision}
 \usage{
 resume_run(checkpoint, ...)
+
+\method{as.character}{agent_resume_result}(x, ...)
+
+\method{print}{agent_resume_result}(x, ...)
 }
 \arguments{
 \item{checkpoint}{A \code{llmragent_checkpoint} with a decision recorded by
 \code{\link[=approve_tool_call]{approve_tool_call()}}.}
 
 \item{...}{Reserved.}
+
+\item{x}{An \code{agent_resume_result} object.}
 }
 \value{
-The final reply text (character scalar). The rebuilt agent is
-attached as \code{attr(x, "agent")}.
+An object of class \code{agent_resume_result} with \code{text} (the final
+reply), \code{agent} (the rebuilt agent, or \code{NULL}), and \code{checkpoint} (the
+checkpoint that was resumed).
 }
 \description{
 Rebuilds the paused agent from the checkpoint, applies the recorded decision

@@ -51,8 +51,8 @@ lookup_population <- agent_tool(
 
 The limits are enforced, not advisory. A sixth call is refused and the model is
 told why, rather than executed. A tool that runs too long or returns too much can
-be capped the same way (`timeout_s`, `max_bytes`). Drop the tool into an agent
-exactly as you would any tool:
+be capped through `timeout_s` and `max_bytes`; a timed tool requires `callr` at
+construction. Drop the tool into an agent exactly as you would any tool:
 
 ```{r use-tool}
 demographer <- agent("Demographer", cfg, tools = list(lookup_population),
@@ -63,7 +63,7 @@ demographer$chat("Which is larger, Chicago or Austin, and by how much?")
 ## Guardrails check what flows in and out
 
 A guardrail is a check that runs at a boundary: on the user's input, on the
-model's output, or on a tool's result. It can block (raise an error and stop),
+model's output, or before a tool executes. It can block (raise an error and stop),
 warn, or simply flag for the record. Every verdict becomes an event in the run,
 so even a flag that does not stop anything leaves a trace.
 
@@ -87,11 +87,9 @@ tryCatch(
 )
 ```
 
-Tool-stage guardrails apply the same check to tool results, which matters
-when a tool reaches an outside service you do not control. A result that looks
-like an injection attempt, or carries content it should not, can be stopped
-before the model ever reads it. The payload a tool guardrail receives is a list
-with the tool's `name`, `arguments`, and `result`.
+Tool-stage guardrails receive the tool's `name` and `arguments` before the
+function runs. A blocking verdict prevents the side effect. The payload also
+has a `result` field, which is `NULL` during this pre-execution check.
 
 ## Human approval for the irreversible
 
@@ -129,7 +127,9 @@ Approve, reject, or edit the arguments, then resume:
 ```{r approve}
 decided <- approve_tool_call(checkpoint, "approve")
 result  <- resume_run(decided)
-result    # the approved call ran, and the agent continued from where it paused
+result$text       # final reply
+result$agent      # rebuilt agent with continued accounting
+result$checkpoint # the decision that was resumed
 ```
 
 Rejecting feeds the model a denial and lets it carry on without the action.

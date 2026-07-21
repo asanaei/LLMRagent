@@ -1,5 +1,5 @@
 # Personas as auditable research objects: construction, variation, and audit.
-# Every test is offline (no .config is passed, so no model call is made):
+# Every test is offline (no generative config is passed, so no model call is made):
 # enumerated variants and the lexical audit layer only.
 
 test_that("persona_frame builds an object with text and a content hash", {
@@ -33,7 +33,8 @@ test_that("the persona hash is stable across construction and tracks the text", 
 test_that("enumerated persona_variants builds a persona_set carrying the design", {
   base <- persona_frame("A small-business owner in a mid-size town.",
                         source = "synthetic")
-  set <- persona_variants(base, vary = list(age = c("28", "52")))
+  set <- persona_variants(base, vary = list(age = c("28", "52")),
+                          config = NULL)
 
   expect_s3_class(set, "persona_set")
   expect_equal(nrow(set), 2L)
@@ -87,7 +88,7 @@ test_that("the lexical audit layer flags essentializing language", {
 test_that("auditing a persona_set scores every brief and diagnostics summarizes", {
   base <- persona_frame("A small-business owner.", source = "synthetic")
   set <- persona_variants(base, vary = list(age = c("35", "60")))
-  aud <- persona_audit(set)
+  aud <- persona_audit(set, config = NULL)
 
   expect_s3_class(aud, "persona_audit")
   expect_equal(nrow(aud), 2L)

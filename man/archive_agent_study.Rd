@@ -9,7 +9,8 @@ archive_agent_study(
   path,
   include_messages = TRUE,
   redact = NULL,
-  formats = c("csv", "jsonl", "rds")
+  formats = c("csv", "jsonl", "rds"),
+  overwrite = FALSE
 )
 }
 \arguments{
@@ -36,7 +37,11 @@ applied to the on-disk copy after hashing, so the join invariant holds.}
 
 \item{formats}{Which optional formats to write, any of \code{"csv"} (the tabular
 views), \code{"jsonl"} (events and calls; always written), and \code{"rds"} (the
-\code{agent_run} object as \code{run.rds}). Defaults to all three.}
+privacy-filtered, data-only run snapshot as \code{run.rds}). Defaults to all
+three.}
+
+\item{overwrite}{If \code{FALSE} (default), refuse a non-empty \code{path}. Set to
+\code{TRUE} to replace archive files in an existing directory.}
 }
 \value{
 Invisibly, an object of class \code{agent_archive}: a list with \code{path},
@@ -50,10 +55,16 @@ event / call / tool / state views, the per-call provenance (\code{calls.jsonl},
 the LLMR audit log copied verbatim when one was kept), any artifacts, a
 drafted methods note (\code{README-methods.md}), and a \code{hashes.sha256} manifest
 over every file written. The archive is the supplementary material a paper
-can ship: it carries the apparatus's identity and the calls' provenance, not
+can ship: it carries the declared specification and the calls' provenance, not
 just the prose.
 }
 \details{
+The archive is privacy-preserving at its serialization boundary: \code{run.rds}
+is a data-only snapshot of the same projected levels written to the text
+formats. Live agents, callers, tool functions, model configurations, and
+configuration secrets are never serialized into the archive. Message
+omission and redaction apply to this snapshot as well as the text files.
+
 Hashes are identity, not outcome. The \code{request_hash} in \code{calls.jsonl} is
 computed over the original request, so a call read back from the archive
 still matches the same call issued live. Redaction therefore never touches a

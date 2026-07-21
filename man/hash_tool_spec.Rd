@@ -2,7 +2,7 @@
 % Please edit documentation in R/manifest.R
 \name{hash_tool_spec}
 \alias{hash_tool_spec}
-\title{Hash a tool's full specification}
+\title{Hash a tool's declared specification}
 \usage{
 hash_tool_spec(tool)
 }
@@ -13,10 +13,10 @@ hash_tool_spec(tool)
 A 64-character SHA-256 hex string.
 }
 \description{
-Identity of a tool as a research instrument: its name, description, argument
-schema, governance policy (side effects, approval, limits), and its R
-function body. Tightening a tool's policy (e.g. lowering \code{max_calls}) changes
-the hash, because it is a different apparatus.
+Hashes a tool's name, description, argument schema, governance policy (side
+effects, approval, limits), and R function body. Captured values in the
+function's enclosing environment are omitted, so this identifies the
+declared specification rather than the complete executable apparatus.
 }
 \seealso{
 \code{\link[=agent_tool]{agent_tool()}}, \code{\link[=agent_manifest]{agent_manifest()}}

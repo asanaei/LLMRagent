@@ -1,12 +1,13 @@
 Type: Package
 Package: LLMRagent
 Title: Reproducible Language-Model Agents for Research
-Version: 0.8.0
+Version: 0.8.1
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
 Description: Large language model agents as governed research instruments,
   built on 'LLMR'. An agent's tools and budgets are declared up front, and
-  every run leaves a hash-sealed record whose integrity a reviewer can verify.
+  every run carries provenance that can be written as a hash-sealed record
+  whose integrity a reviewer can verify.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -14,7 +15,7 @@ RoxygenNote: 7.3.3
 Depends:
     R (>= 4.2)
 Imports:
-    LLMR (>= 0.8.10),
+    LLMR (>= 0.8.11),
     R6,
     tibble,
     rlang,
@@ -22,7 +23,6 @@ Imports:
     digest,
     jsonlite,
     httr2,
-    callr,
     utils
 Suggests:
     testthat (>= 3.0.0),
@@ -32,9 +32,8 @@ Suggests:
     future.apply,
     dplyr,
     withr,
-    R.utils,
+    callr,
     jsonvalidate,
-    igraph,
     htmltools
 Config/testthat/edition: 3
 VignetteBuilder: knitr

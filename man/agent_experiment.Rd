@@ -2,9 +2,12 @@
 % Please edit documentation in R/experiment.R
 \name{agent_experiment}
 \alias{agent_experiment}
+\alias{print.agent_experiment}
 \title{Run a factorial agent experiment}
 \usage{
 agent_experiment(design, run_fn, reps = 1L, parallel = FALSE, quiet = FALSE)
+
+\method{print}{agent_experiment}(x, ...)
 }
 \arguments{
 \item{design}{A data frame; each row is a condition, each column a factor
@@ -19,6 +22,10 @@ a named list. Whatever it returns is stored in the \code{result} list-column.}
 (set a plan first, e.g. \code{future::plan(future::multisession)}).}
 
 \item{quiet}{FALSE prints one progress line per completed cell.}
+
+\item{x}{An \code{agent_experiment} object.}
+
+\item{...}{Ignored.}
 }
 \value{
 \code{design} expanded by replication, plus \code{rep}, \code{result}, \code{error},

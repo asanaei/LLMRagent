@@ -34,8 +34,8 @@
 #' @param requires_approval If `TRUE`, each call pauses for human sign-off (see
 #'   [human_gate()]); the agent then runs a controllable tool loop so the pause
 #'   is possible. Default `FALSE`.
-#' @param timeout_s Optional wall-clock limit per call (seconds); needs the
-#'   `R.utils` package to enforce, otherwise it is recorded but not enforced.
+#' @param timeout_s Optional wall-clock limit per call (seconds). Timed calls
+#'   run in a `callr` child process, which is terminated at the limit.
 #' @param max_calls Maximum times this **tool object** may run (`Inf` by
 #'   default). A call beyond the limit is refused (the model is told, not the
 #'   tool executed). The counter lives in the tool object, so it is shared if
@@ -45,7 +45,8 @@
 #' @param max_bytes Maximum result size in bytes (as measured by
 #'   `nchar(type = "bytes")`); a larger result is truncated at a character
 #'   boundary within the cap and flagged.
-#' @return An `llmr_tool` carrying a `"governance"` attribute.
+#' @return An object of class `agent_tool` and `llmr_tool`, with its governance
+#'   policy in the ordinary `governance` field.
 #' @seealso [LLMR::llm_tool()], [hash_tool_spec()], [guardrail()], [human_gate()]
 #' @examples
 #' lookup <- agent_tool(
@@ -61,12 +62,28 @@ agent_tool <- function(fn, name, description, parameters = NULL, required = NULL
                        timeout_s = NULL, max_calls = Inf, max_bytes = Inf) {
   stopifnot(is.function(fn))
   side_effects <- match.arg(side_effects)
+  if (!is.null(timeout_s) && is.null(.agent_tool_timeout_backend())) {
+    stop("`timeout_s` requires the 'callr' package.", call. = FALSE)
+  }
   state <- new.env(parent = emptyenv())
   state$n_calls <- 0L
   gov <- list(side_effects = side_effects,
               requires_approval = isTRUE(requires_approval),
               timeout_s = timeout_s, max_calls = max_calls,
               max_bytes = max_bytes, state = state, raw_fn = fn)
+
+  truncate_bytes <- function(x, limit) {
+    limit <- max(0L, as.integer(floor(limit)))
+    if (!limit || !nzchar(x)) return("")
+    keep <- substr(x, 1L, min(nchar(x), limit))
+    while (nchar(keep, type = "bytes") > limit) {
+      chars <- nchar(keep)
+      next_chars <- floor(chars * limit / nchar(keep, type = "bytes"))
+      if (next_chars >= chars) next_chars <- chars - 1L
+      keep <- if (next_chars > 0L) substr(keep, 1L, next_chars) else ""
+    }
+    keep
+  }
 
   wrapped <- function(...) {
     args <- list(...)
@@ -76,10 +93,13 @@ agent_tool <- function(fn, name, description, parameters = NULL, required = NULL
                      format(max_calls)))
     }
     run_one <- function() do.call(fn, args)
-    res <- if (!is.null(timeout_s) && requireNamespace("R.utils", quietly = TRUE)) {
+    res <- if (!is.null(timeout_s)) {
       tryCatch(
-        R.utils::withTimeout(run_one(), timeout = timeout_s, onTimeout = "error"),
-        TimeoutException = function(e)
+        callr::r(
+          function(fn, args) do.call(fn, args),
+          args = list(fn = fn, args = args), timeout = timeout_s,
+          spinner = FALSE),
+        callr_timeout_error = function(e)
           sprintf("BLOCKED: tool '%s' timed out after %ss.", name, timeout_s),
         error = function(e) paste0("ERROR: ", conditionMessage(e)))
     } else {
@@ -89,23 +109,25 @@ agent_tool <- function(fn, name, description, parameters = NULL, required = NULL
       tryCatch(as.character(jsonlite::toJSON(res, auto_unbox = TRUE, null = "null")),
                error = function(e) paste(utils::capture.output(print(res)), collapse = "\n"))
     if (is.finite(max_bytes) && nchar(out, type = "bytes") > max_bytes) {
-      # The cap is in BYTES; substr() counts characters, so a multibyte result
-      # is shrunk proportionally until the kept text fits within the byte cap
-      # (converging in a few steps, always on a character boundary).
-      keep <- substr(out, 1L, max_bytes)
-      while (nchar(keep, type = "bytes") > max_bytes) {
-        keep <- substr(keep, 1L,
-                       floor(nchar(keep) * max_bytes / nchar(keep, type = "bytes")))
-      }
-      out <- paste0(keep, sprintf(" ...[truncated to %s bytes]", format(max_bytes)))
+      limit <- max(0L, as.integer(floor(max_bytes)))
+      marker <- truncate_bytes(" [truncated]", limit)
+      keep <- truncate_bytes(out, limit - nchar(marker, type = "bytes"))
+      out <- paste0(keep, marker)
     }
     out
   }
 
   tool <- LLMR::llm_tool(wrapped, name = name, description = description,
                          parameters = parameters, required = required)
-  attr(tool, "governance") <- gov
+  tool$governance <- gov
+  class(tool) <- unique(c("agent_tool", class(tool)))
   tool
+}
+
+#' @keywords internal
+#' @noRd
+.agent_tool_timeout_backend <- function() {
+  if (requireNamespace("callr", quietly = TRUE)) "callr" else NULL
 }
 
 # Internal: the governance record for a tool (or a default for a plain
@@ -113,7 +135,7 @@ agent_tool <- function(fn, name, description, parameters = NULL, required = NULL
 #' @keywords internal
 #' @noRd
 .tool_governance <- function(tool) {
-  gov <- attr(tool, "governance")
+  gov <- tool$governance %||% attr(tool, "governance")
   if (is.null(gov)) {
     return(list(side_effects = "external", requires_approval = FALSE,
                 timeout_s = NULL, max_calls = Inf, max_bytes = Inf))

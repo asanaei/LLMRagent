@@ -1,263 +1,286 @@
 ---
 name: llmragent
-description: Reproducible LLM agents for R on LLMR - personas, native tools, pluggable memory, hard budgets, agents delegating to agents, multi-agent conversations (debate, focus group, interview, deliberation), factorial experiments, plus a 1.0 reproducibility/governance/validity/scale stack - unified run objects with tidy event graphs, study manifests of content hashes, sealed replication archives, declared tool side effects and guardrails, human approval gates, robustness batteries, a calibration bridge, anti-essentialist persona tooling, claim-type discipline, an auditable workflow runtime with checkpoint/resume/fork/replay, a governed MCP client, sandboxed tools, and social-simulation scaffolding.
+description: Reproducible language-model agents for R on LLMR, with personas, native tools, pluggable memory, budgets, delegation, shared-transcript conversations, experiments, run provenance, privacy-preserving archives, guardrails, human approval gates, robustness batteries, auditable workflows, and a governed MCP client.
 ---
 
-# LLMRagent — usage capsule for AI assistants
+# LLMRagent usage capsule
 
-One file to use the package correctly. For depth: the vignettes
-(`getting-started`, `designed-conversations`, `super-brain`,
-`deliberation-experiment`).
-
-The package has five layers. The core agent is unchanged from 0.7.x; the
-1.0 release wraps it with provenance, governance, validity, and scale
-helpers that all funnel through one unified run object.
+LLMRagent 0.8.1 requires LLMR 0.8.11 or later. It treats agents as research
+instruments whose prompts, calls, tool use, and limits should remain
+inspectable.
 
 ## Install
 
 ```r
-remotes::install_github("asanaei/LLMRagent")   # depends on LLMR (>= 0.8.7)
+install.packages("LLMRagent")
+library(LLMRagent)
 ```
+
+Provider keys come from environment variables through `LLMR::llm_config()`.
+Do not place literal keys in scripts or persisted objects.
 
 ## Core API
 
 ```r
-agent(name, config, persona = NULL, tools = list(),
-      memory = memory_buffer(), budget = budget(), quiet = FALSE)
-# methods: $chat(text, ..., stream = FALSE)  $reply(messages, ...)
-#          $ask_structured(text, schema, ...) $trace() $usage()
-#          $transcript() $reset()
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b")
 
-budget(max_calls = Inf, max_tokens = Inf, max_tool_calls = Inf, max_seconds = Inf)
+a <- agent(
+  name = "Ada",
+  config = cfg,
+  persona = "A meticulous statistician. Be brief.",
+  tools = list(),
+  memory = memory_buffer(),
+  budget = budget(),
+  guardrails = NULL,
+  quiet = FALSE
+)
+
+a$chat("What is overfitting?")
+a$reply("Give a stateless answer.")
+a$ask_structured("Classify this.", schema = list(type = "object"))
+a$trace()
+a$usage()
+a$transcript()
+a$reset()
+
+budget(max_calls = Inf, max_tokens = Inf,
+       max_tool_calls = Inf, max_seconds = Inf)
 memory_buffer(keep = 40L)
 memory_summary(threshold_chars = 12000L, keep_last = 10L, config = NULL)
 memory_recall(embed_config, keep_recent = 6L, k = 4L)
+```
 
-agent_as_tool(x, name = NULL, description = NULL)   # agents calling agents
+`max_calls` is checked before every actual model round, including compaction
+and rounds inside a tool loop. `max_tool_calls` is checked before a tool runs.
+`max_tokens` is a recorded-use gate: a response can move recorded use past the
+limit, after which the next model round is refused. `max_seconds` likewise
+stops the next round after recorded elapsed time reaches the limit.
+
+`$chat()` writes the user turn and successful reply to memory. `$reply()` and
+`$ask_structured()` are stateless. Failures are errors and are not stored as
+model replies. Streaming is available through `$chat(..., stream = TRUE)` when
+the agent has no tools.
+
+## Delegation, pipelines, and conversations
+
+```r
+agent_as_tool(x, name = NULL, description = NULL)
 agent_pipeline(agents, input, quiet = FALSE, ...)
 
-conversation(agents, topic, ..., turn_policy = c("round_robin", "random",
-             "moderator"), max_turns = 2L * length(agents))
-debate(pro, con, topic, rounds = 2L, judge = NULL, quiet = FALSE, ...)
-focus_group(moderator, participants, topic, questions = NULL, ...)
-interview(interviewer, respondent, topic, questions = NULL, ...)
+conversation(agents, topic, turn_policy = "round_robin", max_turns = 6L)
+debate(pro, con, topic, rounds = 2L, judge = NULL)
+focus_group(moderator, participants, topic, questions = NULL)
+iv <- interview(interviewer, respondent, topic, questions = NULL)
+iv$qa
 deliberate(agents, proposal, rounds = 2L,
-           options = c("yes", "no", "abstain"), ...)
+           options = c("yes", "no", "abstain"))
 
-agent_experiment(design, run_fn, reps = 1L, parallel = FALSE, quiet = FALSE)
-think_harder(problem, strong_config, cheap_config, n_approaches = 4L,
-             verify = TRUE, quiet = FALSE, ...)
-save_agent(x, path); load_agent(path, tools = list(), embed_config = NULL)
+agent_experiment(design, run_fn, reps = 1L,
+                 parallel = FALSE, quiet = FALSE)
+
+out <- agent_fanout_synthesis(
+  problem,
+  strong_config,
+  cheap_config,
+  n_approaches = 4L,
+  verify = TRUE
+)
+out$answer
+out$workers
 ```
 
-### Provenance and archiving
+Conversations use one attributed transcript. Each speaker's own earlier turns
+are rendered as assistant messages and other speakers' turns as labeled user
+messages. The interview return is an `agent_interview` object; its tidy
+question-and-answer frame is in `$qa` and `as.data.frame(iv)`.
+
+`agent_fanout_synthesis()` returns an `agent_fanout_result`. It uses a strong
+model to plan and synthesize, plus several inexpensive worker calls. Model
+sampling remains nondeterministic.
+
+## Provenance and archiving
 
 ```r
-# Any run -> one unified run object with a rich event graph.
-as_agent_run(x)                          # Agent, conversation, debate, focus_group,
-                                         # interview, deliberate, pipeline, experiment, super_brain
-tibble::as_tibble(run, level = "utterance")   # also "event", "call", "tool", "state"
-agent_manifest(run)                      # study manifest: content hashes + environment
-archive_agent_study(run, path)           # sealed, replayable archive on disk
-diagnostics(run)                         # provenance + integrity checks (LLMR generic)
-report(run)                              # human-readable summary (LLMR generic)
-hash_persona(persona); hash_tool_spec(tool); hash_workflow(workflow)
+run <- as_agent_run(a)
+tibble::as_tibble(run, level = "utterance")
+tibble::as_tibble(run, level = "event")
+tibble::as_tibble(run, level = "call")
+tibble::as_tibble(run, level = "tool")
+tibble::as_tibble(run, level = "state")
+
+agent_manifest(run)
+hash_persona(a$persona, a$name)
+hash_tool_spec(a$tools[[1]])
+diagnostics(run)
+report(run)
+
+archive_agent_study(
+  run,
+  path = "study-archive",
+  include_messages = FALSE,
+  redact = NULL,
+  overwrite = FALSE
+)
 ```
 
-### Governance and control
+`hash_tool_spec()` identifies the declared tool fields and function body. It
+does not identify values captured in the function's enclosing environment.
+
+An archive directory contains data views, call records, a manifest, methods
+text, artifacts, file hashes, and an optional data-only `run.rds`. It never
+serializes live agents, callers, tool functions, or configuration secrets.
+Message omission and redaction apply to the data-only RDS as well as the text
+formats. A nonempty destination is refused unless `overwrite = TRUE`.
+
+## Governed tools and guardrails
 
 ```r
-# A tool whose side effects, approval needs, and quotas are declared up front.
-agent_tool(fn, name, description, parameters,
-           side_effects = "none",       # "none" | "read" | "write" | "network" | ...
-           requires_approval = FALSE, max_calls = Inf,
-           timeout_s = Inf, max_bytes = Inf)
+tool <- agent_tool(
+  fn = function(city) paste0("22 C in ", city),
+  name = "weather",
+  description = "Read the current weather for a city.",
+  parameters = list(city = list(type = "string")),
+  side_effects = "external",
+  requires_approval = FALSE,
+  timeout_s = NULL,
+  max_calls = 5L,
+  max_bytes = 10000L
+)
 
-guardrail(name, check, on_fail = "block", stage = "input")  # "input"|"output"|"tool"
-guardrails(...)                          # bundle several
-agent(name, config, guardrails = guardrails(...))           # attach to an agent
+g <- guardrail(
+  "no_write",
+  check = function(payload, context) {
+    if (identical(payload$name, "write_file")) "write blocked" else TRUE
+  },
+  on_fail = "block",
+  stage = "tool"
+)
 
-human_gate(tool)                         # wrap a tool so calls pause for a person
-approve_tool_call(checkpoint, decision)  # "approve" | "deny" | "edit"
-resume_run(checkpoint)                   # continue after approval
-check_state_leakage(experiment)          # cross-condition contamination diagnostic
+guarded <- agent("G", cfg, tools = list(tool), guardrails = guardrails(g))
 ```
 
-### Validity
+`side_effects` accepts `"none"`, `"read"`, `"write"`, or `"external"`.
+Tool guardrails run on the tool name and arguments before execution. A blocking
+verdict prevents the side effect. If `timeout_s` is set, `callr` must be
+installed so the timeout can be enforced. `max_bytes` includes the truncation
+marker.
 
 ```r
-persona_frame(text, source = NULL, scope = NULL, attributes = NULL)  # provenanced persona
-persona_variants(p, vary = NULL)         # counterfactual persona set
-persona_audit(p)                         # essentialism / stereotype scan
+gated_tool <- human_gate(agent_tool(
+  function(path, text) writeLines(text, path),
+  name = "write_note",
+  description = "Write text to a file.",
+  parameters = list(
+    path = list(type = "string"),
+    text = list(type = "string")
+  ),
+  side_effects = "write"
+))
 
-mark_claim_type(run, type)               # "descriptive" | "predictive" | "calibrated_inference" | ...
-llm_claim_lint(run)                      # flag claims unsupported by the run's evidence
-
-agent_calibrate(predictions, gold, method = NULL, estimand = NULL)  # design-based / PPI bridge
-attach_calibration(run, cal)             # bind a calibration to a run
-as_llmrcontent_validation(x)             # coerce to an LLMR content validation
-
-agent_robustness(run_fn, vary = NULL, measure = NULL)
-vary_models(...); vary_temperature(...); vary_prompt(...)
-vary_persona(...); vary_option_order(...)
+pending <- tryCatch(
+  agent("Scribe", cfg, tools = list(gated_tool))$chat("Write a note."),
+  llmragent_pending_approval = function(e) e$checkpoint
+)
+approved <- approve_tool_call(pending, decision = "approve")
+resumed <- resume_run(approved)
+resumed$text
+resumed$agent
+resumed$checkpoint
 ```
 
-### Scale and reach
+Approval decisions are `"approve"`, `"reject"`, and `"edit"`. Rejection does
+not run the tool. `resume_run()` returns an `agent_resume_result` with ordinary
+fields rather than attributes.
+
+## Personas, claims, and robustness
 
 ```r
-# Auditable workflow runtime (a small DAG with checkpoints).
-agent_workflow(name)
-add_node(workflow, name, fn, ...); add_edge(workflow, from, to)
-run_workflow(workflow, input, ...); resume_workflow(checkpoint)
-fork_workflow(checkpoint); replay_run(archive)
-workflow_from_pipeline(pipeline)         # lift an agent_pipeline into a workflow
+p <- persona_frame(
+  "A first-time voter in a competitive district.",
+  source = "synthetic"
+)
+ps <- persona_variants(p, vary = list(age = c("22", "52")))
+persona_audit(ps)
 
-mcp_tools(config, policy = NULL, transport = NULL)   # governed Model Context Protocol client
-sandbox_tool(fn, mode = NULL, executor = NULL)       # isolated tool execution
+run <- mark_claim_type(run, "theory_probe")
+llm_claim_lint("The configured model supports the policy.", run)
 
-# Social-simulation scaffolding.
-agent_population(...); society(...)
-step_interaction(society, ...); collect_measures(society, ...)
-exposure_matrix(society); contamination_report(society)
+batt <- agent_robustness(
+  run_fn,
+  vary = list(temperature = c(0, 0.7)),
+  measure = function(x) x$decision,
+  config = cfg
+)
+diagnostics(batt)
 
-view_run(run)                            # HTML run inspector
+vary_models("model-a", "model-b")
+vary_temperature(0, 0.7)
+vary_prompt("Question A", "Question B")
+vary_persona("Cautious", "Risk tolerant")
+vary_option_order("as_is", "reverse")
 ```
 
-## Canonical patterns
+Claim types are `"instrument_pilot"`, `"theory_probe"`, and `"coding"`.
+They scope what a run can support; none converts model output into a population
+estimate. `persona_variants()`, `persona_audit()`, `vary_prompt()`, and
+`agent_robustness()` use `config` when they consume one model configuration.
+
+## Workflows
 
 ```r
-library(LLMRagent)
-cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.7)
-
-# one agent, stateful
-ada <- agent("Ada", cfg, persona = "A meticulous statistician. Brief.")
-ada$chat("What is overfitting?"); ada$chat("How do I detect it?")
-
-# delegation: the supervisor decides when to consult
-lead <- agent("Lead", cfg, persona = "Consult specialists, then synthesize.",
-              tools = list(agent_as_tool(
-                agent("Stat", cfg, persona = "A PhD statistician."))))
-
-# a deliberation with private structured votes
-d <- deliberate(list(agent("A", cfg, persona = "Cautious."),
-                     agent("B", cfg, persona = "Bold.")),
-                proposal = "Adopt the pilot.", quiet = TRUE)
-d$votes; d$decision
-
-# strong planner + cheap workers
-out <- think_harder("Hard problem text...",
-                    strong_config = LLMR::llm_config("deepseek", "deepseek-reasoner"),
-                    cheap_config  = cfg)
-
-# PROVENANCE + ARCHIVE: turn any run into the unified object, inspect, seal it
-run <- as_agent_run(d)
-tibble::as_tibble(run, level = "utterance")   # tidy turns
-tibble::as_tibble(run, level = "event")       # the full event graph
-diagnostics(run)                              # integrity + provenance checks
-m <- agent_manifest(run)                       # content hashes of persona/tools/workflow
-archive_agent_study(run, path = tempfile(fileext = ".zip"))   # replayable
-
-# GOVERNED TOOL + HUMAN GATE: a writing tool that pauses for approval
-writer <- agent_tool(
-  fn = function(path, text) writeLines(text, path),
-  name = "write_note", description = "Write text to a file.",
-  parameters = list(path = "string", text = "string"),
-  side_effects = "write", requires_approval = TRUE, max_calls = 3L)
-gated <- agent("Scribe", cfg, tools = list(human_gate(writer)),
-               guardrails = guardrails(
-                 guardrail("no_secrets",
-                           check = function(x) !grepl("API_KEY", x),
-                           on_fail = "block", stage = "output")))
-# a pending call raises llmragent_pending_approval, carrying a checkpoint:
-res <- tryCatch(gated$chat("Save a hello note."),
-                llmragent_pending_approval = function(e) e)
-# approve_tool_call(res$checkpoint, "approve"); resume_run(res$checkpoint)
-
-# ROBUSTNESS + CALIBRATION: stress a run, then bridge to a defensible estimate
-rob <- agent_robustness(
-  run_fn = function(...) deliberate(list(agent("J", cfg)), "Adopt?", quiet = TRUE),
-  vary   = vary_temperature(0, 0.7),
-  measure = function(r) r$decision)
-diagnostics(rob)
-cal <- agent_calibrate(predictions = c(1, 0, 1), gold = c(1, 1, 1),
-                       method = "ppi", estimand = "mean")
-graded <- mark_claim_type(attach_calibration(run, cal), "calibrated_inference")
-
-# A TINY WORKFLOW: two nodes, run, then replay from the archive
 wf <- agent_workflow("triage")
-wf <- add_node(wf, "draft", function(input, ...) list(text = input))
-wf <- add_node(wf, "review", function(text, ...) list(ok = nchar(text) > 0))
-wf <- add_edge(wf, "draft", "review")
-wrun <- run_workflow(wf, input = "a claim to triage")
+wf <- add_node(wf, "clean", function(state) {
+  state$text <- trimws(state$input)
+  state
+})
+wf <- add_node(wf, "review", function(state) {
+  state$ok <- nzchar(state$text)
+  state
+})
+wf <- add_edge(wf, "clean", "review")
+
+wrun <- run_workflow(wf, input = " a claim ")
+fork_workflow(wrun, wf)
+replay_run(wrun, wf, verify = "structural")
+
+workflow_from_pipeline(list(agent("A", cfg), agent("B", cfg)))
 ```
 
-## Semantics that matter
+Plain function nodes receive and return `state`. Agent nodes read one state
+field and write another. Checkpoints make resumption and branching explicit.
+Strict replay can reproduce deterministic function nodes. A workflow that
+calls a model is not deterministic unless its calls are served from recorded
+responses; structural replay does not require sampled model text to match.
 
-- Budgets are checked BEFORE each call; exceeding raises
-  `llmragent_budget_error` (catch with `tryCatch`). Tool loops count every
-  internal model call and enforce `max_tool_calls` mid-loop. Counters
-  survive `save_agent()`/`load_agent()`; the wall clock restarts.
-- Failures are errors, never replies: an API error propagates and memory
-  stays clean.
-- `$chat()` writes memory; `$reply()` and `$ask_structured()` are
-  stateless (conversations use `reply`, so the shared transcript is the
-  single source of truth).
-- `agent_as_tool()` consultations run on the SPECIALIST's meter and budget;
-  a specialist's budget stop reads back to the supervisor as a tool-error
-  string.
-- `stream = TRUE` prints tokens live; unavailable with tools (falls back,
-  with one warning); silent when the agent was built `quiet = TRUE`.
-- Local seeds affect only the `"random"` turn policy and parallel streams;
-  model sampling is server-side — do not sprinkle `set.seed()` for it.
-- Provenance accrues automatically while an agent or conversation runs;
-  you do not opt in. `$trace()` is a flat projection (unchanged), whereas
-  `as_agent_run()` reconstructs the rich event graph: utterances, model
-  calls, tool calls, state transitions, and budget/guardrail events.
-- Tool side effects are part of the contract: `agent_tool()` declares them,
-  and the manifest hashes them, so a `side_effects = "write"` tool cannot
-  pass as inert. `mcp_tools()` defaults to READ-ONLY with schema pinning;
-  it refuses calls when a server's schema drifts from the pinned copy.
-- Calibration is a precondition, not decoration: a run cannot carry a
-  `"calibrated_inference"` claim until a calibration is attached
-  (`agent_calibrate()` then `attach_calibration()`); `mark_claim_type()`
-  enforces the discipline and `llm_claim_lint()` flags overreach.
-- Workflows are deterministic by construction: every node boundary is a
-  checkpoint, so `resume_workflow()`, `fork_workflow()`, and
-  `replay_run()` reproduce or branch a run; a divergent replay is an error,
-  not a silent drift.
+## MCP and inspection
 
-The 1.0 layers raise typed conditions so studies can fail loudly and be
-caught precisely: `llmragent_budget_error`, `llmragent_guardrail_block`,
-`llmragent_claim_error`, `llmragent_pending_approval`,
-`llmragent_mcp_schema_drift`, `llmragent_replay_mismatch`,
-`llmragent_sandbox_violation`, and `llmragent_workflow_error`.
+```r
+mcp_tools(config, policy = "read_only", approve_writes = TRUE,
+          pin_schemas = TRUE, transport = NULL)
+view_run(run, output = "run.html", open = FALSE)
+check_state_leakage(experiment)
+save_agent(a, "agent.rds")
+load_agent("agent.rds", tools = list())
+```
 
-## Test seam
+The MCP client admits only tools marked read-only under its default policy,
+pins advertised signatures, sanitizes injection-like descriptions, and can
+route writes through approval. `save_agent()` is separate from study archives:
+it persists a live agent and warns if its config contains a literal key.
 
-`Agent$new(..., caller = , stream_caller = )` accepts injected callers; a
+## Main conditions
+
+- `llmragent_budget_error`: the next model or tool call was refused by budget.
+- `llmragent_guardrail_block`: a guardrail blocked input, output, or a tool call.
+- `llmragent_pending_approval`: a tool call paused for a human decision.
+- `llmragent_claim_error`: prose or a claim label exceeds the run's scope.
+- `llmragent_mcp_schema_drift`: an MCP tool no longer matches its pinned spec.
+- `llmragent_replay_mismatch`: a workflow replay diverged from recorded state.
+- `llmragent_workflow_error`: a workflow failed its graph or step contract.
+
+## Offline test seam
+
+`Agent$new(..., caller = , stream_caller = )` accepts injected callers. A
 caller receives `(config, messages, tools, ...)` and returns an
-`llmr_response`-shaped object. All presets accept agents built this way,
-so whole studies run offline. Provenance, manifests, archives, robustness,
-and workflows all work against injected callers, so the entire 1.0 stack
-is exercisable without network access.
-
-## Error meanings
-
-- `llmragent_budget_error` → the budget refused the next call; raise the
-  budget or accept the stop.
-- `llmragent_guardrail_block` → a guardrail rejected input, output, or a
-  tool call at the named stage.
-- `llmragent_pending_approval` → a `human_gate()` tool needs a decision;
-  the condition carries a checkpoint for `approve_tool_call()` /
-  `resume_run()`.
-- `llmragent_claim_error` → a claim type was asserted without the evidence
-  it requires (e.g. `"calibrated_inference"` with no calibration attached).
-- `llmragent_mcp_schema_drift` → an MCP server's tool schema no longer
-  matches the pinned copy; re-pin deliberately before proceeding.
-- `llmragent_sandbox_violation` → a `sandbox_tool()` breached its mode or
-  resource limits.
-- `llmragent_replay_mismatch` / `llmragent_workflow_error` → a replay
-  diverged from its archive, or a workflow node/edge was misconfigured.
-- "must be created with budget()" / "must be a list of Agent objects" →
-  constructor misuse.
-- Moderator policy requires `moderator = agent(...)`.
+`llmr_response`-shaped object, allowing agent, conversation, provenance,
+archive, and workflow tests to run without network access.

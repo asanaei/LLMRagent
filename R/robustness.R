@@ -19,11 +19,11 @@
 #'
 #' @param ... For `vary_models`/`vary_temperature`, the levels (model names or
 #'   temperatures). For `vary_prompt`, either named template strings or
-#'   `paraphrase = n` with `.config =` to generate `n` paraphrases. For
+#'   `paraphrase = n` with `config =` to generate `n` paraphrases. For
 #'   `vary_persona`, persona variants (strings or a `persona_set`). For
 #'   `vary_option_order`, the orders (`"as_is"`, `"reverse"`, `"random"`).
 #' @param paraphrase For `vary_prompt`: number of paraphrases to generate.
-#' @param .config For `vary_prompt(paraphrase=)`: a generative config used once
+#' @param config For `vary_prompt(paraphrase=)`: a generative config used once
 #'   to draft the paraphrases (hashed into the manifest).
 #' @param seed For `vary_option_order`: RNG seed for the random permutation.
 #' @return An `agent_axis` object.
@@ -45,16 +45,16 @@ vary_temperature <- function(...) .axis("temperature", c(...))
 #'   axis's levels (including the original as the baseline), so `run_fn`'s
 #'   `perturb$prompt(x)` returns the cell's paraphrase, not a placeholder.
 #' @export
-vary_prompt <- function(..., prompt = NULL, paraphrase = NULL, .config = NULL) {
+vary_prompt <- function(..., prompt = NULL, paraphrase = NULL, config = NULL) {
   if (!is.null(paraphrase)) {
     if (is.null(prompt) || !nzchar(prompt)) {
       stop("vary_prompt(paraphrase=) needs `prompt =` (the actual prompt text ",
-           "to paraphrase) and `.config =` (a generative llm_config).",
+           "to paraphrase) and `config =` (a generative llm_config).",
            call. = FALSE)
     }
     return(structure(list(axis = "prompt", mode = "paraphrase",
                           n = as.integer(paraphrase), prompt = prompt,
-                          config = .config),
+                          config = config),
                      class = "agent_axis"))
   }
   templates <- c(...)
@@ -138,7 +138,7 @@ vary_option_order <- function(..., seed = 110) {
 #'   quantity whose stability is assessed. If `NULL`, the result is used when it
 #'   is already scalar.
 #' @param baseline Which level of each axis is the reference (`"first"`).
-#' @param .config A base config (used to build `perturb$config`).
+#' @param config A base config (used to build `perturb$config`).
 #' @param parallel Passed to [agent_experiment()].
 #' @param quiet Passed to [agent_experiment()].
 #' @param ... Passed to [agent_experiment()].
@@ -162,7 +162,7 @@ vary_option_order <- function(..., seed = 110) {
 #' @export
 agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
                              measure = NULL, baseline = "first",
-                             .config = NULL, parallel = FALSE, quiet = TRUE, ...) {
+                             config = NULL, parallel = FALSE, quiet = TRUE, ...) {
   stopifnot(is.function(run_fn))
   if (!length(vary)) stop("Provide at least one axis in `vary`.", call. = FALSE)
 
@@ -195,7 +195,7 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
 
   # Wrap run_fn so each cell receives a ready `perturb` built from its axis levels.
   wrapped <- function(cond, rep) {
-    pert <- .build_perturb(cond, axes, .config)
+    pert <- .build_perturb(cond, axes, config)
     if (length(formals(run_fn)) >= 3L) run_fn(cond, rep, pert)
     else run_fn(cond, rep)
   }
@@ -415,7 +415,7 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
 #' @noRd
 .generate_paraphrases <- function(prompt, n, config) {
   if (is.null(config)) {
-    stop("vary_prompt(paraphrase=) needs .config (a generative llm_config).",
+    stop("vary_prompt(paraphrase=) needs config (a generative llm_config).",
          call. = FALSE)
   }
   schema <- list(type = "object", properties = list(

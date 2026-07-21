@@ -37,14 +37,15 @@ by one adaptive probe based on the answer.}
 \item{...}{Passed to the underlying LLMR calls.}
 }
 \value{
-A tibble: \code{order}, \code{type} ("scripted" or "probe"), \code{question},
-\code{answer}.
+An object of class \code{agent_interview}: a list with \code{qa} (a tibble
+with \code{order}, \code{type}, \code{question}, and \code{answer}), \code{topic}, and provenance.
+\code{as.data.frame()} returns \code{qa}.
 }
 \description{
 The interviewer works through a question list (or drafts one), asking one
 question at a time with an optional adaptive follow-up probing the
-respondent's previous answer. Returns a tidy question/answer frame, the
-format interview studies analyze.
+respondent's previous answer. The returned object carries the tidy
+question/answer frame in \verb{$qa}.
 }
 \examples{
 \dontrun{

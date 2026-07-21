@@ -5,7 +5,7 @@
 \alias{print.persona_audit}
 \title{Audit persona briefs for essentializing language and caricature}
 \usage{
-persona_audit(p_or_set, .config = NULL, dimensions = NULL)
+persona_audit(p_or_set, config = NULL, dimensions = NULL)
 
 \method{print}{persona_audit}(x, ...)
 }
@@ -13,7 +13,7 @@ persona_audit(p_or_set, .config = NULL, dimensions = NULL)
 \item{p_or_set}{A \code{\link[=persona_frame]{persona_frame()}}, a \code{\link[=persona_variants]{persona_variants()}} result
 (\code{persona_set}), or a list of \code{persona_frame} objects.}
 
-\item{.config}{Optional generative \code{LLMR::llm_config()} for model scoring.
+\item{config}{Optional generative \code{LLMR::llm_config()} for model scoring.
 When \code{NULL} (default), only the lexical layer runs and model scores are
 \code{NA}.}
 
@@ -40,7 +40,7 @@ representationally. Two layers:
 built-in lexicon of essentializing and demographic-as-destiny patterns.
 A brief that says a demographic \emph{naturally} or \emph{always} thinks something
 is flagged.
-\item \strong{Model} (optional, when \code{.config} is a generative \code{LLMR::llm_config()}):
+\item \strong{Model} (optional, when \code{config} is a generative \code{LLMR::llm_config()}):
 each brief is scored on caricature and essentialism on a 0--1 scale via
 \code{\link[LLMR:llm_judge]{LLMR::llm_judge()}}. Without a config these scores are \code{NA}.
 }
@@ -57,7 +57,7 @@ persona_audit(set)
 diagnostics(persona_audit(set))
 \dontrun{
 cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
-persona_audit(set, .config = cfg)   # adds model caricature scores
+persona_audit(set, config = cfg)   # adds model caricature scores
 }
 }
 \seealso{

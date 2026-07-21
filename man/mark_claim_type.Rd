@@ -4,33 +4,26 @@
 \alias{mark_claim_type}
 \title{Mark the kind of claim a run can support}
 \usage{
-mark_claim_type(
-  run,
-  type = c("instrument_pilot", "theory_probe", "coding", "calibrated_inference")
-)
+mark_claim_type(run, type = c("instrument_pilot", "theory_probe", "coding"))
 }
 \arguments{
 \item{run}{An object accepted by \code{\link[=as_agent_run]{as_agent_run()}}.}
 
-\item{type}{One of \code{"instrument_pilot"}, \code{"theory_probe"}, \code{"coding"},
-\code{"calibrated_inference"}.}
+\item{type}{One of \code{"instrument_pilot"}, \code{"theory_probe"}, or \code{"coding"}.}
 }
 \value{
 The run (an \code{agent_run}), invisibly, with the claim type recorded.
 }
 \description{
-Records, on a run, what its results may be used to argue. The four types,
-from weakest to strongest: \code{"instrument_pilot"} (the run characterizes an
+Records, on a run, what its results may be used to argue. The three types
+are \code{"instrument_pilot"} (the run characterizes an
 instrument, not a population), \code{"theory_probe"} (it explores a mechanism or
-hypothesis), \code{"coding"} (it annotates data, with reliability reported), and
-\code{"calibrated_inference"} (it estimates a quantity validated against human
-data). The strongest type is refused unless a calibration is attached (see
-\code{\link[=agent_calibrate]{agent_calibrate()}} / \code{\link[=attach_calibration]{attach_calibration()}}), so a simulation cannot be
-relabeled as a population estimate without the evidence.
+hypothesis), and \code{"coding"} (it annotates data, with reliability reported).
 }
 \details{
 The label flows into \code{\link[=report]{report()}}: prose that would overstate the claim is
-rewritten or refused for anything short of calibrated inference.
+scoped or refused. None of these types turns model output into a population
+estimate.
 }
 \examples{
 \dontrun{
@@ -40,5 +33,5 @@ report(run)   # prose is scoped to a theory probe, not a population claim
 }
 }
 \seealso{
-\code{\link[=agent_calibrate]{agent_calibrate()}}, \code{\link[=attach_calibration]{attach_calibration()}}, \code{\link[=report]{report()}}
+\code{\link[=report]{report()}}
 }

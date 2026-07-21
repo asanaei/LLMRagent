@@ -77,9 +77,8 @@ work warrants -- these surface here before they surface in your conclusions.
 
 `report()` writes a short methods paragraph and, importantly, refuses to
 overstate. An agent run is model-conditioned output, not a sample from a human
-population, and `report()` says so unless you have attached a calibration (see
-the validity vignette). The report carries that scope condition unless a
-calibration is attached.
+population, and `report()` says so. Claim labels can describe an instrument
+pilot, theory probe, or coding exercise, but none removes that scope condition.
 
 ```{r report}
 report(run)
@@ -90,26 +89,26 @@ report(run)
 Two runs are "the same study" when their design is the same: same personas,
 same tools, same turn policy, same model and settings. They are emphatically
 not the same when any of those change, even if the transcripts happen to read
-alike. `agent_manifest()` captures design identity as a set of content hashes,
-keeping outcome (the transcript) separate from apparatus (the design):
+alike. `agent_manifest()` captures the declared design as a set of content
+hashes, keeping outcome (the transcript) separate from recorded apparatus:
 
 ```{r manifest}
 m <- agent_manifest(run)
-m$manifest_hash    # changes iff the design changes
+m$manifest_hash    # changes when a hashed declared component changes
 ```
 
 A reworded persona, a changed tool body, or a different temperature moves the
-hash. Re-run the identical design and it stays put. This is the same split
+hash. Values captured in a tool closure are not part of that identity; record
+such state in the design when it matters. This is the same split
 'LLMR' makes between a request's identity and its content, lifted to the level
 of a whole study.
 
 ## Archiving: seal the evidence
 
-`archive_agent_study()` writes a self-describing directory. The transcript, the
-event graph, the manifest, the artifacts (votes, verdicts, designs), a drafted
-methods note, and a checksum file that seals the whole thing. The centerpiece is
-`calls.jsonl`, which is a genuine 'LLMR' audit log: you can read it back with
-'LLMR' itself.
+`archive_agent_study()` writes a self-describing directory. It contains the
+transcript, event graph, manifest, artifacts, drafted methods note, a data-only
+RDS projection, and a checksum file that seals the whole thing. The centerpiece
+is `calls.jsonl`, which is a genuine 'LLMR' audit log that 'LLMR' can read.
 
 ```{r archive}
 dir <- file.path(tempdir(), "four_day_week_study")
@@ -117,7 +116,8 @@ archive_agent_study(run, dir)
 list.files(dir)
 ```
 
-The archive keeps the original hashes. The hashes are computed over the
+The archive never serializes live agents, caller closures, tool functions, or
+model configurations. The archive keeps the original hashes. They are computed over the
 original text, so they match the live run even if you redact the stored copy for
 privacy. And the request hash in `calls.jsonl` joins to the `request_hash` you
 saw at the call level. That join is the integrity check: it lets a skeptic
@@ -149,12 +149,14 @@ archive_agent_study(run, file.path(tempdir(), "redacted_study"),
 ```
 
 For privacy that must omit the request entirely, pass `include_messages = FALSE`:
-the archive then carries metadata and hashes but no message text at all.
+the archive then carries metadata and hashes but no message text at all,
+including in `run.rds`. A nonempty destination is refused unless
+`overwrite = TRUE`.
 
 ## Why archive
 
 A reviewer asks which model you used and whether you cherry-picked. A
-co-author wants to re-run last month's study and get a comparable result. A
-replication team, a year on, has only your files. In each case the answer is the
-archive: the run, the manifest, and the log that joins them. The archive makes a
-model-generated result something you can inspect, rerun, and defend.
+replication team, a year on, has only your files. The archive preserves the
+recorded design, transcript, calls, and hashes that join them. It makes a
+model-generated result something one can inspect, verify, and defend; it is not
+an executable checkpoint.
