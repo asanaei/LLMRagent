@@ -2,6 +2,12 @@
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and
   governed-tool limits; narrowed the public API to supported contracts.
+- Retrieval-memory embedding operations now pass the agent's budget and are
+  recorded in the trace as `embed` events; the model call is re-gated after
+  any accounted work earlier in the same turn.
+- `save_agent()` refuses a config carrying a literal API key instead of
+  warning and writing the key to disk.
+- The `Agent` R6 generator is internal; construct agents with `agent()`.
 
 # LLMRagent 0.8.0
 

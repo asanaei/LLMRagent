@@ -140,3 +140,34 @@ test_that("summary memory can bill compaction to a dedicated cheap model", {
     expect_identical(seen_model, "cheap-model")
   })
 })
+
+test_that("retrieval embeddings pass the agent budget and land in the trace", {
+  emb_cfg <- LLMR::llm_config("gemini", "gemini-embedding-001", embedding = TRUE)
+  n_embed_ops <- 0L
+  fake_embed <- function(texts, embed_config, ...) {
+    n_embed_ops <<- n_embed_ops + 1L
+    matrix(1, nrow = length(texts), ncol = 3)
+  }
+
+  m <- memory_recall(emb_cfg, keep_recent = 1, k = 2)
+  for (i in 1:5) m$add(if (i %% 2) "user" else "assistant", paste("note", i))
+  a <- Agent$new("Sage", LLMR::llm_config("groq", "fake-model"),
+                 memory = m, caller = scripted_caller(list("ok")), quiet = TRUE)
+  with_stub_llmr("get_batched_embeddings", fake_embed, a$chat("query"))
+
+  expect_identical(n_embed_ops, 2L)             # backlog batch + query
+  expect_identical(a$usage()$calls, 3L)         # 2 embed operations + 1 chat
+  expect_identical(sum(a$trace()$event == "embed"), 2L)
+
+  # The model call is gated on the state AFTER the embeds: max_calls = 2
+  # admits both embedding operations and then refuses the chat call.
+  m2 <- memory_recall(emb_cfg, keep_recent = 1, k = 2)
+  for (i in 1:5) m2$add("user", paste("note", i))
+  b <- Agent$new("Gated", LLMR::llm_config("groq", "fake-model"),
+                 memory = m2, caller = scripted_caller(list("ok")),
+                 budget = budget(max_calls = 2), quiet = TRUE)
+  with_stub_llmr("get_batched_embeddings", fake_embed,
+                 expect_error(b$chat("query"),
+                              class = "llmragent_budget_error"))
+  expect_identical(b$usage()$calls, 2L)
+})

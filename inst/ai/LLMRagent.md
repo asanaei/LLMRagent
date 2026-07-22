@@ -1,6 +1,6 @@
 ---
 name: llmragent
-description: Reproducible language-model agents for R on LLMR, with personas, native tools, pluggable memory, budgets, delegation, shared-transcript conversations, experiments, run provenance, privacy-preserving archives, guardrails, human approval gates, robustness batteries, auditable workflows, and a governed MCP client.
+description: Governed language-model agents for research workflows in R, built on LLMR, with data-only run records and controlled tool execution.
 ---
 
 # LLMRagent usage capsule
@@ -266,7 +266,8 @@ load_agent("agent.rds", tools = list())
 The MCP client admits only tools marked read-only under its default policy,
 pins advertised signatures, sanitizes injection-like descriptions, and can
 route writes through approval. `save_agent()` is separate from study archives:
-it persists a live agent and warns if its config contains a literal key.
+it persists a live agent and refuses a config that contains a literal key
+(use an environment-variable reference, the default).
 
 ## Main conditions
 
@@ -278,9 +279,9 @@ it persists a live agent and warns if its config contains a literal key.
 - `llmragent_replay_mismatch`: a workflow replay diverged from recorded state.
 - `llmragent_workflow_error`: a workflow failed its graph or step contract.
 
-## Offline test seam
+## Offline testing
 
-`Agent$new(..., caller = , stream_caller = )` accepts injected callers. A
-caller receives `(config, messages, tools, ...)` and returns an
-`llmr_response`-shaped object, allowing agent, conversation, provenance,
-archive, and workflow tests to run without network access.
+The R6 generator and its caller-injection arguments are internal, not a
+public contract. To exercise agent code without network access, drive it
+through the archive replayer or stub `LLMR::call_llm()` at the test level;
+construct agents with `agent()`.

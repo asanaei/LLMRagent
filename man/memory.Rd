@@ -41,7 +41,9 @@ forgetting decisions. By default the agent's own model writes the
 summary; pass \code{config} to bill compaction to a cheaper model instead.
 \item \code{memory_recall(embed_config, keep_recent, k)}: long-horizon recall. Older
 messages are embedded (via LLMR); at each turn the \code{k} most similar to
-the current input are injected alongside the recent tail.
+the current input are injected alongside the recent tail. Attached to an
+agent, each embedding operation counts toward the agent's \code{max_calls}
+budget and appears in its trace as an \code{embed} event.
 }
 }
 \examples{

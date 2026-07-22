@@ -26,7 +26,7 @@ division of labor:
 3. **Synthesize.** The strong model weighs the drafts against one another,
    discards what fails scrutiny, and writes the answer (one call).
 4. **Verify.** Optionally, the strong model attacks its own synthesis as a
-   hostile reviewer; one revision pass runs when it finds a substantive flaw
+   independent verifier; one revision pass runs when it finds a substantive flaw
    (one or two calls).
 
 Whatever the fan-out width, the strong model is billed for two to four calls;

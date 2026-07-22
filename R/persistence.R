@@ -10,9 +10,9 @@
 #' them at load time via `load_agent(tools = ...)`. Guardrails are serialized
 #' (their check functions travel through RDS) and restored automatically.
 #'
-#' When the config carries a literal API key (one passed as a string rather
-#' than the usual environment-variable reference), saving warns: the key would
-#' be written to disk inside the RDS file.
+#' A config carrying a literal API key (one passed as a string rather than
+#' the usual environment-variable reference) is refused: saving it would
+#' write the key to disk. Rebuild the config from an environment variable.
 #'
 #' @param x An [Agent].
 #' @param path File path (`.rds`).
@@ -33,10 +33,10 @@
 save_agent <- function(x, path) {
   stopifnot(inherits(x, "Agent"))
   if (inherits(x$config$api_key, "llmr_secret_literal")) {
-    warning("This agent's config carries a literal API key, which will be ",
-            "written to disk inside the saved file. Prefer a config built ",
-            "from an environment variable (the default), which saves only ",
-            "the variable's name.", call. = FALSE)
+    stop("This agent's config carries a literal API key; saving would write ",
+         "the key to disk. Rebuild the config from an environment variable ",
+         "(the default, or LLMR::llm_api_key_env()) and save again.",
+         call. = FALSE)
   }
   state <- list(
     llmragent_version = as.character(utils::packageVersion("LLMRagent")),

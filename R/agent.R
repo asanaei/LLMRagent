@@ -12,7 +12,8 @@
 #' reaches the limit, but one response can take the total past it because the
 #' response's token count is not known in advance.
 #'
-#' @param max_calls Maximum number of model calls.
+#' @param max_calls Maximum number of model calls, counting chat exchanges,
+#'   memory compactions, and retrieval-memory embedding operations.
 #' @param max_tokens Stop before the next model call once recorded sent and
 #'   received tokens reach this value.
 #' @param max_tool_calls Maximum executed tool invocations.
@@ -50,14 +51,16 @@ budget <- function(max_calls = Inf, max_tokens = Inf,
 
 #' The Agent class
 #'
-#' Construct with [agent()]. The methods documented here form the public
-#' interface: `chat()` for stateful exchanges, `reply()` for stateless ones
+#' Construct with [agent()], the package's only supported constructor. The
+#' methods documented here form the working interface of a constructed
+#' agent: `chat()` for stateful exchanges, `reply()` for stateless ones
 #' (used by [conversation()]), `ask_structured()` for schema-shaped answers,
-#' plus accessors for the trace, usage, and transcript.
+#' plus accessors for the trace, usage, and transcript. The generator itself
+#' is internal; its constructor arguments are not a public contract.
 #'
 #' @name Agent-class
 #' @aliases Agent
-#' @export
+#' @keywords internal
 Agent <- R6::R6Class(
   "Agent",
   public = list(
@@ -126,6 +129,23 @@ Agent <- R6::R6Class(
       private$stream_caller <- stream_caller %||% private$default_stream_caller
       private$spans <- list()
       private$agent_id <- .llmragent_id("agent")
+      # Retrieval memory embeds through the agent so those provider calls are
+      # budgeted and recorded like any other; a standalone memory embeds
+      # directly.
+      if (is.function(self$memory$bind_embedder)) {
+        self$memory$bind_embedder(function(texts, embed_config) {
+          private$assert_budget()
+          if (is.null(private$t_first)) private$t_first <- Sys.time()
+          t0 <- Sys.time()
+          out <- LLMR::get_batched_embeddings(texts, embed_config)
+          private$n_calls <- private$n_calls + 1L
+          private$span_add(
+            "embed",
+            duration = as.numeric(difftime(Sys.time(), t0, units = "secs")),
+            note = sprintf("memory recall: %d text(s)", length(texts)))
+          out
+        })
+      }
       invisible(self)
     },
 
@@ -219,7 +239,8 @@ Agent <- R6::R6Class(
     },
 
     #' @description The trace: one row per event (model calls, tool runs,
-    #'   memory compactions, budget stops) with tokens and timing. This is a
+    #'   memory compactions, retrieval embeddings, budget stops) with tokens
+    #'   and timing. This is a
     #'   projection of the internal span store onto the legacy event vocabulary;
     #'   richer event types (guardrail, approval, stream) and span linkage are
     #'   available via `as_agent_run(agent)` and `tibble::as_tibble(run, "event")`.
@@ -228,7 +249,7 @@ Agent <- R6::R6Class(
         ts = as.POSIXct(character(0)), event = character(0),
         tokens_sent = integer(0), tokens_received = integer(0),
         tool = character(0), duration = numeric(0), note = character(0))
-      legacy <- c("call", "compact", "tool", "budget_stop")
+      legacy <- c("call", "compact", "tool", "embed", "budget_stop")
       rows <- Filter(function(s) (s$event_type %||% "") %in% legacy, private$spans)
       if (!length(rows)) return(empty)
       do.call(rbind, lapply(rows, function(s) {
@@ -428,6 +449,10 @@ Agent <- R6::R6Class(
 
     call_model = function(messages, ..., .config_override = NULL,
                           .tools_override = NULL) {
+      # Rechecked here, not only at the turn's entry: accounted work earlier in
+      # the same turn (compaction, retrieval embeddings) must not let the model
+      # call slip past the gate.
+      private$assert_budget()
       cfg <- .config_override %||% self$config
       tls <- .tools_override %||% self$tools
       # Stash what we are about to send so account() can build the canonical
@@ -465,6 +490,7 @@ Agent <- R6::R6Class(
     },
 
     call_model_stream = function(messages, ...) {
+      private$assert_budget()
       private$last_messages <- messages
       private$last_cfg <- self$config
       if (is.null(private$t_first)) private$t_first <- Sys.time()

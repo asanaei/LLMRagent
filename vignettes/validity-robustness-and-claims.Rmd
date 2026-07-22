@@ -15,9 +15,10 @@ knitr::opts_chunk$set(
 ```
 
 A language model will answer questions about populations it has not observed.
-Fluency does not establish measurement validity. A defensible study records
-how results move under perturbation, inspects its persona prompts, and states
-the limited kind of claim its design can support.
+This vignette covers the tools that put that problem on the record:
+`agent_robustness()` measures how results move under perturbation,
+`persona_audit()` inspects persona prompts, and `mark_claim_type()` states
+the kind of claim a design supports.
 
 ```{r setup}
 library(LLMRagent)

@@ -21,9 +21,9 @@ them at load time via \code{load_agent(tools = ...)}. Guardrails are serialized
 (their check functions travel through RDS) and restored automatically.
 }
 \details{
-When the config carries a literal API key (one passed as a string rather
-than the usual environment-variable reference), saving warns: the key would
-be written to disk inside the RDS file.
+A config carrying a literal API key (one passed as a string rather than
+the usual environment-variable reference) is refused: saving it would
+write the key to disk. Rebuild the config from an environment variable.
 }
 \examples{
 \dontrun{

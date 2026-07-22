@@ -46,13 +46,14 @@ test_that("guardrails survive save/load (no silent policy bypass)", {
   expect_error(b2$chat("tell me a secret"), class = "llmragent_guardrail_block")
 })
 
-test_that("save_agent warns when the config carries a literal API key", {
+test_that("save_agent refuses a config carrying a literal API key", {
   cfg <- suppressWarnings(
     LLMR::llm_config("groq", "fake-model", api_key = "sk-LITERAL"))
   a <- Agent$new("Leaky", cfg, caller = scripted_caller(list("ok")), quiet = TRUE)
   path <- tempfile(fileext = ".rds")
   on.exit(unlink(path))
-  expect_warning(save_agent(a, path), "literal API key")
+  expect_error(save_agent(a, path), "literal API key")
+  expect_false(file.exists(path))
   # the usual env-reference config saves silently
   b <- fake_agent("Clean", list("ok"))
   path2 <- tempfile(fileext = ".rds")

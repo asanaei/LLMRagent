@@ -10,11 +10,14 @@ The Agent class
 The Agent class
 }
 \details{
-Construct with \code{\link[=agent]{agent()}}. The methods documented here form the public
-interface: \code{chat()} for stateful exchanges, \code{reply()} for stateless ones
+Construct with \code{\link[=agent]{agent()}}, the package's only supported constructor. The
+methods documented here form the working interface of a constructed
+agent: \code{chat()} for stateful exchanges, \code{reply()} for stateless ones
 (used by \code{\link[=conversation]{conversation()}}), \code{ask_structured()} for schema-shaped answers,
-plus accessors for the trace, usage, and transcript.
+plus accessors for the trace, usage, and transcript. The generator itself
+is internal; its constructor arguments are not a public contract.
 }
+\keyword{internal}
 \section{Public fields}{
 \if{html}{\out{<div class="r6-fields">}}
 \describe{
@@ -193,7 +196,8 @@ reply stays available in \verb{$last_response}.
 \if{latex}{\out{\hypertarget{method-Agent-trace}{}}}
 \subsection{Method \code{trace()}}{
 The trace: one row per event (model calls, tool runs,
-memory compactions, budget stops) with tokens and timing. This is a
+memory compactions, retrieval embeddings, budget stops) with tokens
+and timing. This is a
 projection of the internal span store onto the legacy event vocabulary;
 richer event types (guardrail, approval, stream) and span linkage are
 available via \code{as_agent_run(agent)} and \code{tibble::as_tibble(run, "event")}.

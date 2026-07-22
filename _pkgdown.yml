@@ -14,7 +14,6 @@ reference:
     One agent: a persona, a model, tools, memory, and declared budgets.
   contents:
   - agent
-  - Agent-class
   - budget
   - memory
 - title: Delegation and pipelines

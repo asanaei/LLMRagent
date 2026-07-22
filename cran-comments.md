@@ -29,7 +29,7 @@ findings in plain text, and the test passes at any width.
 
 ## Dependencies
 
-Imports LLMR (>= 0.8.10), which is on CRAN. All other Imports and Suggests
+Imports LLMR (>= 0.8.11), submitted to CRAN alongside this release. All other Imports and Suggests
 are on CRAN.
 
 ## Tests and examples

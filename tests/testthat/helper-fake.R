@@ -16,6 +16,10 @@ fake_response <- function(text = "ok", sent = 10L, rec = 5L,
 }
 
 # A caller that returns scripted replies in order (recycling the last).
+# The generator is internal; tests construct through it directly to reach
+# the caller seam that agent() does not expose.
+Agent <- LLMRagent:::Agent
+
 scripted_caller <- function(replies) {
   i <- 0L
   function(config, messages, tools, ...) {

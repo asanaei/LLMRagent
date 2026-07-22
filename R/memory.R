@@ -130,6 +130,14 @@ MemoryRecall <- R6::R6Class(
       private$keep_recent <- max(0L, as.integer(keep_recent))
       private$k <- max(0L, as.integer(k))
     },
+    # An owning agent installs its accounted embedding path here so retrieval
+    # embedding operations pass its budget and land in its trace; standalone
+    # memory objects embed directly.
+    bind_embedder = function(fn) {
+      stopifnot(is.function(fn))
+      private$embed_fn <- fn
+      invisible(self)
+    },
     get = function(query = NULL) {
       n <- length(private$msgs)
       if (n <= private$keep_recent || is.null(query) || private$k == 0L) {
@@ -137,7 +145,7 @@ MemoryRecall <- R6::R6Class(
       }
       older_idx <- seq_len(n - private$keep_recent)
       private$ensure_embeddings()
-      qv <- LLMR::get_batched_embeddings(as.character(query)[1], private$embed_config)
+      qv <- private$do_embed(as.character(query)[1])
       if (is.null(qv) || is.null(private$emb)) return(self$.recent())
       qv <- as.numeric(qv[1, ])
       sims <- vapply(older_idx, function(i) {
@@ -172,6 +180,14 @@ MemoryRecall <- R6::R6Class(
     keep_recent = 6L,
     k = 4L,
     emb = NULL,
+    embed_fn = NULL,
+    do_embed = function(texts) {
+      if (is.null(private$embed_fn)) {
+        LLMR::get_batched_embeddings(texts, private$embed_config)
+      } else {
+        private$embed_fn(texts, private$embed_config)
+      }
+    },
     ensure_embeddings = function() {
       n <- length(private$msgs)
       if (is.null(private$emb)) private$emb <- vector("list", 0L)
@@ -179,7 +195,7 @@ MemoryRecall <- R6::R6Class(
       if (done >= n) return(invisible(NULL))
       new_idx <- (done + 1L):n
       texts <- vapply(private$msgs[new_idx], `[[`, "", "content")
-      mat <- LLMR::get_batched_embeddings(texts, private$embed_config)
+      mat <- private$do_embed(texts)
       for (j in seq_along(new_idx)) {
         # single-bracket list assignment: storing NULL must keep a placeholder
         # at that index, not delete it and shift everything after it
@@ -207,7 +223,9 @@ MemoryRecall <- R6::R6Class(
 #'   summary; pass `config` to bill compaction to a cheaper model instead.
 #' - `memory_recall(embed_config, keep_recent, k)`: long-horizon recall. Older
 #'   messages are embedded (via LLMR); at each turn the `k` most similar to
-#'   the current input are injected alongside the recent tail.
+#'   the current input are injected alongside the recent tail. Attached to an
+#'   agent, each embedding operation counts toward the agent's `max_calls`
+#'   budget and appears in its trace as an `embed` event.
 #'
 #' @param keep,keep_last,keep_recent,k,threshold_chars Policy sizes; see above.
 #' @param config Optional `LLMR::llm_config()` used only for compaction

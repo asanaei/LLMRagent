@@ -21,7 +21,7 @@ procedure with branches, loops, a human checkpoint in the middle, or a run long
 enough that you stop and resume it tomorrow. The runtime is small. A node is a
 function of state; an edge is an optional condition; the state is a plain list
 you can read. There is no distributed execution and no DSL beyond `add_node` and
-`add_edge`. A procedure you can read in full is one you can audit.
+`add_edge`. The graph records nodes, edges, state transitions, and checkpoints.
 
 ```{r setup}
 library(LLMRagent)

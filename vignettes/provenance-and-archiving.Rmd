@@ -14,12 +14,9 @@ knitr::opts_chunk$set(
 )
 ```
 
-When a language model produces the data you will analyze, the model is an
-instrument. Instruments need a record: what was asked, which model answered,
-how many tokens it cost, and whether anything failed. Without that record a
-result cannot be checked, and a study that cannot be checked is hard to defend.
-This vignette shows how each LLMRagent run records itself, and how to write an
-archive a reader can open months later.
+Each LLMRagent run records what was asked, which model answered, what it
+cost, and whether anything failed. This vignette shows how that record is
+kept and how to write an archive a reader can open months later.
 
 ```{r setup}
 library(LLMRagent)

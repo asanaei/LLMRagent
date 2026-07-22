@@ -12,7 +12,8 @@ budget(
 )
 }
 \arguments{
-\item{max_calls}{Maximum number of model calls.}
+\item{max_calls}{Maximum number of model calls, counting chat exchanges,
+memory compactions, and retrieval-memory embedding operations.}
 
 \item{max_tokens}{Stop before the next model call once recorded sent and
 received tokens reach this value.}

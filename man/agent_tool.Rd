@@ -65,7 +65,7 @@ as a plain tool does; the governance is carried alongside and enforced on
 every call.
 }
 \details{
-Governance is provenance. A tool's policy is folded into the study manifest
+A tool's policy is folded into the study manifest
 via \code{\link[=hash_tool_spec]{hash_tool_spec()}}, so tightening a limit (a different apparatus) changes
 the manifest hash. Each invocation is recorded with the hashes of its
 arguments and result, its status, and its duration, surfaced at the \code{"tool"}
