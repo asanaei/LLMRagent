@@ -1,6 +1,6 @@
 ---
 name: llmragent
-description: Governed language-model agents for research workflows in R, built on LLMR, with data-only run records and controlled tool execution.
+description: Governed language-model agents for research workflows in R, built on LLMR, with run records that omit live agents and functions and controlled tool execution.
 ---
 
 # LLMRagent usage capsule
@@ -60,6 +60,66 @@ stops the next round after recorded elapsed time reaches the limit.
 `$ask_structured()` are stateless. Failures are errors and are not stored as
 model replies. Streaming is available through `$chat(..., stream = TRUE)` when
 the agent has no tools.
+
+## Governed tools and guardrails
+
+```r
+tool <- agent_tool(
+  fn = function(city) paste0("22 C in ", city),
+  name = "weather",
+  description = "Read the current weather for a city.",
+  parameters = list(city = list(type = "string")),
+  side_effects = "external",
+  requires_approval = FALSE,
+  timeout_s = NULL,
+  max_calls = 5L,
+  max_bytes = 10000L
+)
+
+g <- guardrail(
+  "no_write",
+  check = function(payload, context) {
+    if (identical(payload$name, "write_file")) "write blocked" else TRUE
+  },
+  on_fail = "block",
+  stage = "tool"
+)
+
+guarded <- agent("G", cfg, tools = list(tool), guardrails = guardrails(g))
+```
+
+`side_effects` accepts `"none"`, `"read"`, `"write"`, or `"external"`.
+Tool guardrails receive the tool name and arguments before execution and the
+result after execution. A blocking pre-execution verdict prevents the call.
+If `timeout_s` is set, `callr` must be installed so the timeout can be
+enforced. `max_bytes` includes the truncation marker.
+
+```r
+gated_tool <- human_gate(agent_tool(
+  function(path, text) writeLines(text, path),
+  name = "write_note",
+  description = "Write text to a file.",
+  parameters = list(
+    path = list(type = "string"),
+    text = list(type = "string")
+  ),
+  side_effects = "write"
+))
+
+pending <- tryCatch(
+  agent("Scribe", cfg, tools = list(gated_tool))$chat("Write a note."),
+  llmragent_pending_approval = function(e) e$checkpoint
+)
+approved <- approve_tool_call(pending, decision = "approve")
+resumed <- resume_run(approved)
+resumed$text
+resumed$agent
+resumed$checkpoint
+```
+
+Approval decisions are `"approve"`, `"reject"`, and `"edit"`. Rejection does
+not run the tool. `resume_run()` returns an `agent_resume_result` with ordinary
+fields rather than attributes.
 
 ## Delegation, pipelines, and conversations
 
@@ -132,66 +192,6 @@ serializes live agents, callers, tool functions, or configuration secrets.
 Message omission and redaction apply to the data-only RDS as well as the text
 formats. A nonempty destination is refused unless `overwrite = TRUE`.
 
-## Governed tools and guardrails
-
-```r
-tool <- agent_tool(
-  fn = function(city) paste0("22 C in ", city),
-  name = "weather",
-  description = "Read the current weather for a city.",
-  parameters = list(city = list(type = "string")),
-  side_effects = "external",
-  requires_approval = FALSE,
-  timeout_s = NULL,
-  max_calls = 5L,
-  max_bytes = 10000L
-)
-
-g <- guardrail(
-  "no_write",
-  check = function(payload, context) {
-    if (identical(payload$name, "write_file")) "write blocked" else TRUE
-  },
-  on_fail = "block",
-  stage = "tool"
-)
-
-guarded <- agent("G", cfg, tools = list(tool), guardrails = guardrails(g))
-```
-
-`side_effects` accepts `"none"`, `"read"`, `"write"`, or `"external"`.
-Tool guardrails run on the tool name and arguments before execution. A blocking
-verdict prevents the side effect. If `timeout_s` is set, `callr` must be
-installed so the timeout can be enforced. `max_bytes` includes the truncation
-marker.
-
-```r
-gated_tool <- human_gate(agent_tool(
-  function(path, text) writeLines(text, path),
-  name = "write_note",
-  description = "Write text to a file.",
-  parameters = list(
-    path = list(type = "string"),
-    text = list(type = "string")
-  ),
-  side_effects = "write"
-))
-
-pending <- tryCatch(
-  agent("Scribe", cfg, tools = list(gated_tool))$chat("Write a note."),
-  llmragent_pending_approval = function(e) e$checkpoint
-)
-approved <- approve_tool_call(pending, decision = "approve")
-resumed <- resume_run(approved)
-resumed$text
-resumed$agent
-resumed$checkpoint
-```
-
-Approval decisions are `"approve"`, `"reject"`, and `"edit"`. Rejection does
-not run the tool. `resume_run()` returns an `agent_resume_result` with ordinary
-fields rather than attributes.
-
 ## Personas, claims, and robustness
 
 ```r
@@ -263,11 +263,12 @@ save_agent(a, "agent.rds")
 load_agent("agent.rds", tools = list())
 ```
 
-The MCP client admits only tools marked read-only under its default policy,
-pins advertised signatures, sanitizes injection-like descriptions, and can
-route writes through approval. `save_agent()` is separate from study archives:
-it persists a live agent and refuses a config that contains a literal key
-(use an environment-variable reference, the default).
+Under its default policy, the MCP client refuses calls to tools that are not
+positively marked read-only. It pins advertised signatures, sanitizes
+injection-like descriptions, and can route writes through approval.
+`save_agent()` is separate from study archives: it persists a live agent and
+refuses a config that contains a literal key (use an environment-variable
+reference, the default).
 
 ## Main conditions
 
@@ -281,7 +282,5 @@ it persists a live agent and refuses a config that contains a literal key
 
 ## Offline testing
 
-The R6 generator and its caller-injection arguments are internal, not a
-public contract. To exercise agent code without network access, drive it
-through the archive replayer or stub `LLMR::call_llm()` at the test level;
-construct agents with `agent()`.
+Create agents with `agent()`. For offline tests, replay stored calls or replace
+`LLMR::call_llm()` in the test.

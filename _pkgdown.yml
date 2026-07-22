@@ -9,51 +9,18 @@ home:
   title: "LLMRagent: language-model agents for R"
 
 reference:
-- title: Agents
+- title: Agents, budgets, and memory
   desc: >
-    One agent: a persona, a model, tools, memory, and declared budgets.
+    Create agents with model configurations, personas, memory policies, and
+    declared budgets.
   contents:
   - agent
   - budget
   - memory
-- title: Delegation and pipelines
+- title: Governed tools and human review
   desc: >
-    Agents calling agents, and fixed chains of specialists.
-  contents:
-  - agent_as_tool
-  - agent_pipeline
-- title: Conversations and study presets
-  desc: >
-    Multi-agent dialogue over a shared transcript, and ready-made formats
-    that return classed results with analysis-ready tables.
-  contents:
-  - conversation
-  - debate
-  - focus_group
-  - interview
-  - deliberate
-- title: Experiments
-  contents:
-  - agent_experiment
-  - agent_fanout_synthesis
-- title: Persistence
-  contents:
-  - save_agent
-  - load_agent
-- title: Provenance and reproducibility
-  desc: >
-    Turn any run into one unified object, hash its declared inputs, and seal a
-    privacy-preserving verification archive.
-  contents:
-  - as_agent_run
-  - agent_manifest
-  - archive_agent_study
-  - hash_persona
-  - hash_tool_spec
-- title: Governance
-  desc: >
-    Declared tool side effects, guardrails, human approval gates, and
-    state-leakage diagnostics.
+    Declare tool effects and limits, check boundaries, and pause tool calls
+    for a human decision.
   contents:
   - agent_tool
   - guardrail
@@ -61,26 +28,64 @@ reference:
   - human_gate
   - approve_tool_call
   - resume_run
-  - check_state_leakage
-- title: Validity
+- title: Designed conversations and group decisions
   desc: >
-    Anti-essentialist personas, claim-type discipline, and robustness
-    batteries.
+    Run general conversations or formats designed for argument, group
+    discussion, interviews, and collective decisions.
+  contents:
+  - conversation
+  - debate
+  - focus_group
+  - interview
+  - deliberate
+- title: Experiments and robustness
+  desc: >
+    Run factorial designs and robustness batteries, and check cross-cell
+    state leakage.
+  contents:
+  - agent_experiment
+  - check_state_leakage
+  - agent_robustness
+  - robustness-axes
+- title: Personas and claim scope
+  desc: >
+    Represent and vary personas, inspect essentializing language, and mark
+    the scope of claims.
   contents:
   - persona_frame
   - persona_variants
   - persona_audit
   - mark_claim_type
   - llm_claim_lint
-  - agent_robustness
-  - vary_models
-  - vary_temperature
-  - vary_prompt
-  - vary_persona
-  - vary_option_order
-- title: Workflows
+- title: Delegation and model coordination
   desc: >
-    A small, auditable DAG runtime with checkpoint, resume, fork, and
+    Coordinate specialist agents through model-directed delegation, fixed
+    pipelines, or fan-out synthesis.
+  contents:
+  - agent_as_tool
+  - agent_pipeline
+  - agent_fanout_synthesis
+- title: Run records, archives, and reports
+  desc: >
+    Create common run records, manifests, and inspectable archives. Includes
+    report, diagnostics, and reset methods for LLMRagent results.
+  contents:
+  - as_agent_run
+  - agent_manifest
+  - archive_agent_study
+  - hash_persona
+  - hash_tool_spec
+  - llmragent-methods
+  - reexports
+  - diagnostics.agent_run
+  - diagnostics.agent_experiment
+  - diagnostics.persona_audit
+  - report.agent_run
+  - report.agent_experiment
+  - reset.Agent
+- title: Resumable workflows and replay
+  desc: >
+    Branched and resumable procedures with checkpoints, forks, and workflow
     replay.
   contents:
   - agent_workflow
@@ -93,23 +98,16 @@ reference:
   - workflow_from_pipeline
 - title: External tools and inspection
   desc: >
-    A governed MCP client and an HTML run inspector.
+    Connect governed MCP tools and write an HTML view of a run record.
   contents:
   - mcp_tools
   - view_run
-- title: Diagnostics and reporting
+- title: Saving and loading agents
   desc: >
-    LLMR-family generics registered for LLMRagent objects: machine-readable
-    health numbers, methods-section drafts, and state reset.
+    Persist agent state and restore it with tool functions attached again.
   contents:
-  - llmragent-methods
-  - reexports
-  - diagnostics.agent_run
-  - diagnostics.agent_experiment
-  - diagnostics.persona_audit
-  - report.agent_run
-  - report.agent_experiment
-  - reset.Agent
+  - save_agent
+  - load_agent
 - title: Package
   contents:
   - LLMRagent-package
@@ -119,13 +117,13 @@ articles:
   navbar: Getting started
   contents:
   - getting-started
-  - designed-conversations
-  - fanout-synthesis
-  - deliberation-experiment
-- title: Doing it rigorously
-  navbar: Rigor
-  contents:
-  - provenance-and-archiving
   - governed-tools-and-human-review
+  - designed-conversations
+  - deliberation-experiment
   - validity-robustness-and-claims
+  - provenance-and-archiving
+- title: Advanced coordination
+  navbar: Advanced
+  contents:
+  - fanout-synthesis
   - workflows

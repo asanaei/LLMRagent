@@ -1,8 +1,8 @@
 ---
-title: "Workflows: small, auditable, resumable pipelines"
+title: "Workflows: small, checkable, resumable pipelines"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Workflows: small, auditable, resumable pipelines}
+  %\VignetteIndexEntry{Workflows: small, checkable, resumable pipelines}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -30,9 +30,10 @@ cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.3)
 
 ## State in, state out
 
-A node receives the shared state and returns a new state. That is the whole
-contract. Here is a two-step procedure that drafts an answer and then tightens
-it, with the state carrying the work from one step to the next:
+A node receives the shared state and returns a new state. Each step receives
+the current state and returns the revised state. Here is a two-step procedure
+that drafts an answer and then tightens it, with the state carrying the work
+from one step to the next:
 
 ```{r linear}
 wf <- agent_workflow("draft_then_polish") |>

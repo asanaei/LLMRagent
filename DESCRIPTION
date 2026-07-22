@@ -5,9 +5,9 @@ Version: 0.8.1
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
 Description: Large language model agents as governed research instruments,
-  built on 'LLMR'. An agent's tools and budgets are declared up front, and
-  every run carries provenance that can be written as a hash-sealed record
-  whose integrity a reviewer can verify.
+  built on 'LLMR'. The package supports designed conversations and factorial
+  experiments with declared tools and budgets. Each run produces an
+  inspectable record that can be archived and checked.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)

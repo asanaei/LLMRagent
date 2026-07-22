@@ -46,13 +46,14 @@ ada$chat("Explain cross-validation to a newcomer, in one paragraph.",
          stream = TRUE)
 ```
 
-## Tools: let the agent call your R functions
+## Tools with declared powers
 
-Anything you can write as an R function can become a tool. The agent decides
-when to call it; LLMRagent executes the call and feeds the result back.
+`agent_tool()` exposes an R function and records what kind of effect it may
+have. The agent decides when to call it; LLMRagent executes the call and feeds
+the result back. This lookup declares read access and a five-call ceiling.
 
 ```{r tools}
-lookup_gdp <- LLMR::llm_tool(
+lookup_gdp <- agent_tool(
   function(country) {
     gdp <- c(chile = 335, uruguay = 81, bolivia = 47)  # USD bn, illustrative
     val <- gdp[tolower(country)]
@@ -60,7 +61,10 @@ lookup_gdp <- LLMR::llm_tool(
   },
   name = "lookup_gdp",
   description = "Look up a country's GDP in USD billions.",
-  parameters = list(country = list(type = "string", description = "Country name"))
+  parameters = list(country = list(type = "string", description = "Country name")),
+  required = "country",
+  side_effects = "read",
+  max_calls = 5L
 )
 
 analyst <- agent("Analyst", cfg, tools = lookup_gdp,
@@ -136,7 +140,7 @@ run <- agent_pipeline(
   input = "Our app doubled retention, won three design awards, and users love it."
 )
 run$output
-run$steps      # step, agent, input, output -- the full audit trail
+run$steps      # step, agent, input, output -- the complete step record
 ```
 
 ## A two-agent conversation
@@ -162,5 +166,5 @@ From here: `vignette("designed-conversations")` tours the ready-made study
 formats (debates, focus groups, interviews, deliberations);
 `vignette("deliberation-experiment")` runs a complete factorial study with
 `agent_experiment()`; and `vignette("fanout-synthesis")` shows strong-plus-cheap
-model orchestration with `agent_fanout_synthesis()`. For a per-call audit file of
+model orchestration with `agent_fanout_synthesis()`. For a per-call record of
 everything an agent did, turn on `LLMR::llm_log_enable()` before running.

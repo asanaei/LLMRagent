@@ -1,7 +1,7 @@
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and
-  governed-tool limits; narrowed the public API to supported contracts.
+  governed-tool limits; kept only the supported user functions.
 - Retrieval-memory embedding operations now pass the agent's budget and are
   recorded in the trace as `embed` events; the model call is re-gated after
   any accounted work earlier in the same turn.
