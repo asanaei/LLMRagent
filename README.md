@@ -303,3 +303,13 @@ experimental instruments to panels of model personas for design-stage studies.
 discussions and supports experiments on how one turn changes the next. The
 [ecosystem page](https://asanaei.github.io/LLMR-ecosystem/) introduces the whole
 family.
+
+## Contributing
+
+Report bugs and feature requests in the
+[GitHub repository](https://github.com/asanaei/LLMRagent). Pull requests may be
+submitted there.
+
+## License
+
+This project uses the MIT License; see `LICENSE`.
