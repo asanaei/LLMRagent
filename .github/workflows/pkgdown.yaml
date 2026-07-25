@@ -34,7 +34,6 @@ jobs:
         with:
           extra-packages: |
             any::pkgdown
-            asanaei/LLMR
             local::.
           needs: website
 
