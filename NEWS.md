@@ -7,6 +7,11 @@
   no events; failed cells and cells that returned plain values used to vanish
   from the converted run.
 
+- `check_state_leakage()` reports `clean = NA`, with a warning and the list of
+  unexamined cells, when no leak is found but some cells could not be
+  examined. It used to report `clean = TRUE`, including for experiments whose
+  cells return reply text and therefore expose no agents at all.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and

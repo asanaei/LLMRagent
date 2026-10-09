@@ -16,10 +16,12 @@
 #' once *outside* `run_fn` and reused leaks its memory and identity across
 #' cells, which silently couples conditions that should be independent.
 #'
-#' The check is read-only and conservative: every cell is converted through
-#' [as_agent_run()] inside a `tryCatch()`, and a cell whose result is not
-#' run-able (a number, a string, anything off the provenance path) is skipped
-#' rather than treated as evidence. Two kinds of leak are reported:
+#' The check is read-only: every cell is converted through [as_agent_run()]. A
+#' cell that cannot be examined (a failed cell, a result off the provenance
+#' path such as a number or reply text, or a result whose conversion fails) is
+#' not treated as evidence either way, so when any cell is unexamined and no
+#' leak is found, the check is inconclusive: `clean` is `NA` and a warning
+#' names the reasons. Two kinds of leak are reported:
 #'
 #' - `shared_agent_instance`: one `agent_id` participates in two different
 #'   cells. Distinct cells with a fresh agent each cannot collide on an id, so
@@ -33,7 +35,10 @@
 #'   objects (each element treated as one cell).
 #' @return An object of class `agent_leakage_report`: a list with `leaks` (a
 #'   tibble with columns `cell_i`, `cell_j`, `agent_id`, `kind`, `evidence`),
-#'   `clean` (`TRUE` when no leaks were found), and `n_cells`.
+#'   `clean` (`TRUE` when every cell was examined and no leak was found,
+#'   `FALSE` when a leak was found, `NA` when no leak was found but some cells
+#'   could not be examined), `n_cells`, `n_examined`, and `unexamined` (a
+#'   tibble with columns `cell` and `reason`).
 #' @examples
 #' \dontrun{
 #' design <- data.frame(framing = c("gains", "losses"))
@@ -60,15 +65,31 @@ check_state_leakage <- function(x) {
   results <- cells$results
 
   # Per cell: the participating agent_ids and the set of content hashes found
-  # in that cell's agent memory (state level). Everything is guarded so a weird
-  # cell degrades to "no evidence" instead of crashing the whole check.
+  # in that cell's agent memory (state level). A cell that cannot be examined
+  # contributes no evidence and is recorded with its reason, so that the report
+  # never calls an unexamined experiment clean.
   ids    <- vector("list", n_cells)   # character vector of agent_ids per cell
   hashes <- vector("list", n_cells)   # named list: agent_id -> char vec of content hashes
+  reason <- rep(NA_character_, n_cells)
   for (i in seq_len(n_cells)) {
-    info <- tryCatch(.leakage_cell_info(results[[i]]), error = function(e) NULL)
+    res <- results[[i]]
+    info <- NULL
+    if (is.null(res)) {
+      reason[i] <- "the cell has no result (it failed or returned NULL)"
+    } else if (!.has_run_method(res)) {
+      reason[i] <- sprintf("the cell returned a <%s>, which carries no agents", class(res)[1])
+    } else {
+      info <- tryCatch(.leakage_cell_info(res), error = function(e) e)
+      if (inherits(info, "error")) {
+        reason[i] <- paste("conversion failed:", conditionMessage(info))
+        info <- NULL
+      }
+    }
     ids[[i]]    <- if (is.null(info)) character(0) else info$ids
     hashes[[i]] <- if (is.null(info)) list()      else info$hashes
   }
+  unexamined <- tibble::tibble(cell = which(!is.na(reason)),
+                               reason = reason[!is.na(reason)])
 
   leaks <- list()
   for (i in seq_len(n_cells)) {
@@ -115,8 +136,18 @@ check_state_leakage <- function(x) {
       kind = character(0), evidence = character(0))
   }
 
+  clean <- if (nrow(leaks_tbl)) FALSE else if (nrow(unexamined)) NA else TRUE
+  if (is.na(clean)) {
+    cli::cli_warn(c(
+      sprintf("The leakage check is inconclusive: %d of %d cell(s) could not be examined.",
+              nrow(unexamined), n_cells),
+      i = sprintf("First reason (cell %d): %s", unexamined$cell[1],
+                  gsub("}", "}}", gsub("{", "{{", unexamined$reason[1], fixed = TRUE), fixed = TRUE)),
+      i = "Return the agents or the run from `run_fn` so each cell can be inspected."))
+  }
   structure(
-    list(leaks = leaks_tbl, clean = (nrow(leaks_tbl) == 0L), n_cells = n_cells),
+    list(leaks = leaks_tbl, clean = clean, n_cells = n_cells,
+         n_examined = n_cells - nrow(unexamined), unexamined = unexamined),
     class = "agent_leakage_report")
 }
 
@@ -172,10 +203,18 @@ check_state_leakage <- function(x) {
 #' @export
 print.agent_leakage_report <- function(x, ...) {
   cat(sprintf("<agent_leakage_report | %d cell(s) | clean: %s>\n",
-              x$n_cells, if (isTRUE(x$clean)) "TRUE" else "FALSE"))
+              x$n_cells, if (is.na(x$clean)) "NA" else if (isTRUE(x$clean)) "TRUE" else "FALSE"))
+  n_unexamined <- if (is.data.frame(x$unexamined)) nrow(x$unexamined) else 0L
   if (isTRUE(x$clean)) {
     cat("  No shared agents, memory, or state detected across cells.\n")
+  } else if (is.na(x$clean)) {
+    cat(sprintf("  Inconclusive: no leak found, but %d of %d cell(s) could not be examined.\n",
+                n_unexamined, x$n_cells))
+    print(x$unexamined)
   } else {
+    if (n_unexamined) {
+      cat(sprintf("  %d cell(s) could not be examined; see `unexamined`.\n", n_unexamined))
+    }
     # Summarize the leak kinds in plain text so their full names are always
     # shown; the tibble below abbreviates columns to the console width, which
     # can truncate a kind like "shared_agent_instance" on a narrow terminal.

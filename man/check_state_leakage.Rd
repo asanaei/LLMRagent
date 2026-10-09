@@ -14,7 +14,10 @@ objects (each element treated as one cell).}
 \value{
 An object of class \code{agent_leakage_report}: a list with \code{leaks} (a
 tibble with columns \code{cell_i}, \code{cell_j}, \code{agent_id}, \code{kind}, \code{evidence}),
-\code{clean} (\code{TRUE} when no leaks were found), and \code{n_cells}.
+\code{clean} (\code{TRUE} when every cell was examined and no leak was found,
+\code{FALSE} when a leak was found, \code{NA} when no leak was found but some cells
+could not be examined), \code{n_cells}, \code{n_examined}, and \code{unexamined} (a
+tibble with columns \code{cell} and \code{reason}).
 }
 \description{
 \code{check_state_leakage()} inspects the cells of an \code{\link[=agent_experiment]{agent_experiment()}} (or a
@@ -25,10 +28,12 @@ once \emph{outside} \code{run_fn} and reused leaks its memory and identity acros
 cells, which silently couples conditions that should be independent.
 }
 \details{
-The check is read-only and conservative: every cell is converted through
-\code{\link[=as_agent_run]{as_agent_run()}} inside a \code{tryCatch()}, and a cell whose result is not
-run-able (a number, a string, anything off the provenance path) is skipped
-rather than treated as evidence. Two kinds of leak are reported:
+The check is read-only: every cell is converted through \code{\link[=as_agent_run]{as_agent_run()}}. A
+cell that cannot be examined (a failed cell, a result off the provenance
+path such as a number or reply text, or a result whose conversion fails) is
+not treated as evidence either way, so when any cell is unexamined and no
+leak is found, the check is inconclusive: \code{clean} is \code{NA} and a warning
+names the reasons. Two kinds of leak are reported:
 \itemize{
 \item \code{shared_agent_instance}: one \code{agent_id} participates in two different
 cells. Distinct cells with a fresh agent each cannot collide on an id, so

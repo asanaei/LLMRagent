@@ -76,13 +76,37 @@ test_that("a plain list of agents is checked as one cell each", {
   expect_true(shared$id() %in% leaky$leaks$agent_id)
 })
 
-test_that("non-runnable cells are skipped, not mistaken for leaks", {
+test_that("non-runnable cells are not mistaken for leaks, nor for clean cells", {
   design <- data.frame(x = c(1, 2, 3))
   res <- agent_experiment(design, quiet = TRUE,
                           run_fn = function(cond, rep) cond$x * 10)  # plain numbers
-  rep <- check_state_leakage(res)
-  expect_true(rep$clean)
+  expect_warning(rep <- check_state_leakage(res), "inconclusive: 3 of 3")
+  expect_identical(nrow(rep$leaks), 0L)
+  expect_true(is.na(rep$clean))
   expect_identical(rep$n_cells, 3L)
+  expect_identical(rep$n_examined, 0L)
+  expect_identical(rep$unexamined$cell, 1:3)
+})
+
+test_that("a shared agent behind reply text cannot pass as clean", {
+  shared <- fake_agent("S", "ok")
+  design <- data.frame(x = c(1, 2))
+  res <- agent_experiment(design, quiet = TRUE,
+                          run_fn = function(cond, rep) shared$reply("go"))
+  expect_warning(rep <- check_state_leakage(res), "inconclusive")
+  expect_false(isTRUE(rep$clean))
+  expect_output(print(rep), "Inconclusive")
+})
+
+test_that("a failed cell leaves a check with otherwise clean cells inconclusive", {
+  design <- data.frame(x = c(1, 2))
+  res <- agent_experiment(design, quiet = TRUE, run_fn = function(cond, rep) {
+    if (cond$x == 2) stop("boom")
+    a <- fake_agent("A", "ok"); a$reply("go"); a
+  })
+  expect_warning(rep <- check_state_leakage(res), "1 of 2")
+  expect_true(is.na(rep$clean))
+  expect_match(rep$unexamined$reason, "no result")
 })
 
 test_that("a non-experiment, non-list input errors clearly", {
