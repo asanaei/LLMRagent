@@ -11,12 +11,14 @@ agent_experiment(design, run_fn, reps = 1L, parallel = FALSE, quiet = FALSE)
 }
 \arguments{
 \item{design}{A data frame; each row is a condition, each column a factor
-of the design (personas, prompts, treatments, model names, ...).}
+of the design (personas, prompts, treatments, model names, ...). Columns
+named \code{rep}, \code{result}, \code{error}, or \code{duration} are refused, because the
+result adds columns with those names.}
 
 \item{run_fn}{\verb{function(cond, rep)} where \code{cond} is one row of \code{design} as
 a named list. Whatever it returns is stored in the \code{result} list-column.}
 
-\item{reps}{Replications per condition (default 1).}
+\item{reps}{Replications per condition: one positive whole number (default 1).}
 
 \item{parallel}{If TRUE, cells run concurrently via the \code{future} framework
 (set a plan first, e.g. \code{future::plan(future::multisession)}).}

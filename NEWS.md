@@ -1,3 +1,12 @@
+# LLMRagent 0.8.2
+
+- `agent_experiment()` refuses design columns named `rep`, `result`, `error`,
+  or `duration`, which it used to overwrite, and accepts only a positive whole
+  number for `reps`. Converting an experiment with `as_agent_run()` records the
+  status of every cell in a `cells` artifact and warns when cells contributed
+  no events; failed cells and cells that returned plain values used to vanish
+  from the converted run.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and

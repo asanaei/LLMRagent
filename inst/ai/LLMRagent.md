@@ -5,7 +5,7 @@ description: Governed language-model agents for research workflows in R, built o
 
 # LLMRagent usage capsule
 
-LLMRagent 0.8.1 requires LLMR 0.8.11 or later. It treats agents as research
+LLMRagent 0.8.2 requires LLMR 0.8.11 or later. It treats agents as research
 instruments whose prompts, calls, tool use, and limits should remain
 inspectable.
 

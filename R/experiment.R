@@ -34,10 +34,12 @@
 #' experiment.
 #'
 #' @param design A data frame; each row is a condition, each column a factor
-#'   of the design (personas, prompts, treatments, model names, ...).
+#'   of the design (personas, prompts, treatments, model names, ...). Columns
+#'   named `rep`, `result`, `error`, or `duration` are refused, because the
+#'   result adds columns with those names.
 #' @param run_fn `function(cond, rep)` where `cond` is one row of `design` as
 #'   a named list. Whatever it returns is stored in the `result` list-column.
-#' @param reps Replications per condition (default 1).
+#' @param reps Replications per condition: one positive whole number (default 1).
 #' @param parallel If TRUE, cells run concurrently via the `future` framework
 #'   (set a plan first, e.g. `future::plan(future::multisession)`).
 #' @param quiet FALSE prints one progress line per completed cell.
@@ -62,7 +64,18 @@
 agent_experiment <- function(design, run_fn, reps = 1L,
                              parallel = FALSE, quiet = FALSE) {
   stopifnot(is.data.frame(design), nrow(design) >= 1L, is.function(run_fn))
-  reps <- max(1L, as.integer(reps))
+  clash <- intersect(c("rep", "result", "error", "duration"), names(design))
+  if (length(clash)) {
+    stop(sprintf(paste0(
+      "`design` has column(s) named %s, which agent_experiment() adds to its ",
+      "result; rename them before running."),
+      paste0("'", clash, "'", collapse = ", ")), call. = FALSE)
+  }
+  if (!is.numeric(reps) || length(reps) != 1L || is.na(reps) || reps < 1 ||
+      reps != floor(reps)) {
+    stop("`reps` must be one positive whole number.", call. = FALSE)
+  }
+  reps <- as.integer(reps)
 
   cells <- design[rep(seq_len(nrow(design)), each = reps), , drop = FALSE]
   rownames(cells) <- NULL
@@ -117,18 +130,37 @@ print.agent_experiment <- function(x, ...) {
 as_agent_run.agent_experiment <- function(x, ...) {
   # Recurse into each cell's result: when a cell returned a classed result that
   # carries provenance (a deliberate(), a debate(), a chat agent, ...), fold its
-  # events in, tagged with the design row. Cells whose result is not convertible
-  # are skipped (their work was not on the agent provenance path).
+  # events in, tagged with the design row. Every cell gets a status in the
+  # `cells` artifact, so cells without events are visible rather than missing:
+  # "converted", "failed" (run_fn raised an error), "no_provenance" (it
+  # returned a value with no agent run behind it, such as reply text), or
+  # "conversion_error" (its result could not be converted; see `cell_note`).
   design_cols <- setdiff(names(x), c("result", "error", "duration"))
   rid <- .llmragent_id("run")
   spans <- list()
   participants <- list()
   utts <- list()
+  status <- rep("converted", nrow(x))
+  cell_note <- rep(NA_character_, nrow(x))
+  errors <- if ("error" %in% names(x)) as.character(x$error) else rep(NA_character_, nrow(x))
   for (i in seq_len(nrow(x))) {
     res <- x$result[[i]]
-    if (is.null(res)) next
-    sub <- tryCatch(as_agent_run(res), error = function(e) NULL)
-    if (is.null(sub)) next
+    if (is.null(res)) {
+      status[i] <- if (!is.na(errors[i])) "failed" else "no_provenance"
+      cell_note[i] <- errors[i]
+      next
+    }
+    if (!.has_run_method(res)) {
+      status[i] <- "no_provenance"
+      cell_note[i] <- sprintf("the cell returned a <%s>", class(res)[1])
+      next
+    }
+    sub <- tryCatch(as_agent_run(res), error = function(e) e)
+    if (inherits(sub, "error")) {
+      status[i] <- "conversion_error"
+      cell_note[i] <- conditionMessage(sub)
+      next
+    }
     cell_tag <- paste(vapply(design_cols, function(cn)
       paste0(cn, "=", as.character(x[[cn]][i])), character(1)), collapse = "; ")
     for (s in sub$spans) { s$run_id <- rid; s$note <- paste0("[", cell_tag, "] ", s$note %||% ""); spans[[length(spans) + 1L]] <- s }
@@ -136,14 +168,38 @@ as_agent_run.agent_experiment <- function(x, ...) {
     su <- tryCatch(as_tibble(sub, "utterance"), error = function(e) NULL)
     if (!is.null(su) && nrow(su)) { su$run_id <- rid; su$call_id <- cell_tag; utts[[length(utts) + 1L]] <- su }
   }
+  skipped <- status != "converted"
+  if (any(skipped)) {
+    counts <- table(status[skipped])
+    cli::cli_warn(c(
+      sprintf("%d of %d experiment cell(s) contributed no events to the run.",
+              sum(skipped), nrow(x)),
+      i = paste(sprintf("%s: %d", names(counts), as.integer(counts)), collapse = "; "),
+      i = "See `status` and `cell_note` in the run's `cells` artifact."))
+  }
+  # One row per experiment row, in the same order as the `design` artifact, so
+  # the two join on `cell` without touching the design's own column names.
+  cells_tbl <- data.frame(
+    cell = seq_len(nrow(x)),
+    duration = if ("duration" %in% names(x)) as.numeric(x$duration) else NA_real_,
+    error = errors, status = status, cell_note = cell_note,
+    stringsAsFactors = FALSE)
   prov <- list(
     run_id = rid, kind = "experiment",
-    design = list(conditions = design_cols, n_cells = nrow(x)),
+    design = list(conditions = design_cols, n_cells = nrow(x),
+                  n_converted = sum(!skipped)),
     spans = spans,
     participants = if (length(participants)) tibble::as_tibble(unique(as.data.frame(do.call(rbind, participants), stringsAsFactors = FALSE))) else .empty_participants(),
     created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
     llmr_log = .llmragent_active_log(), agents = list())
   .run_from_provenance(prov,
     utterances = if (length(utts)) do.call(rbind, utts) else NULL,
-    artifacts = list(design = as.data.frame(x[, design_cols, drop = FALSE])))
+    artifacts = list(design = as.data.frame(x[, design_cols, drop = FALSE]),
+                     cells = cells_tbl))
+}
+
+# Internal: does `x` have a specific as_agent_run() method (not the default)?
+.has_run_method <- function(x) {
+  any(vapply(class(x), function(cl)
+    !is.null(utils::getS3method("as_agent_run", cl, optional = TRUE)), logical(1)))
 }
