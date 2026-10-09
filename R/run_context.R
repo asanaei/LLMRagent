@@ -104,6 +104,14 @@
                    persona_hash = character(0))
   }
 
+  # The live agents stay available, but a completed run reports their tools,
+  # generation parameters, and memory as they were when it closed: reusing or
+  # changing an agent afterwards must not rewrite this run's record.
+  snapshot <- list(
+    tools  = .tools_of_agents(agents),
+    params = .params_of_agents(agents),
+    state  = .state_of_agents(agents, rc$run_id))
+
   list(
     run_id = rc$run_id,
     kind = rc$kind,
@@ -113,6 +121,7 @@
     participants = participants,
     spans = ev_rows,
     agents = agents,
+    snapshot = snapshot,
     pkg_versions = .llmragent_pkg_versions()
   )
 }

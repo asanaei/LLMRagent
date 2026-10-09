@@ -117,11 +117,19 @@ agent_manifest <- function(run) {
   structure(out, class = "agent_manifest")
 }
 
-# Internal: collect the participating agents' tools into a hashed tibble.
+# Internal: collect the participating agents' tools into a hashed tibble. A
+# closed run reports the tools its agents had when it closed (its snapshot), so
+# a tool added later does not enter an earlier run's manifest.
 #' @keywords internal
 #' @noRd
 .manifest_tools <- function(r) {
-  agents <- r$agents %||% list()
+  if (is.data.frame(r$snapshot$tools)) return(r$snapshot$tools)
+  .tools_of_agents(r$agents %||% list())
+}
+
+#' @keywords internal
+#' @noRd
+.tools_of_agents <- function(agents) {
   rows <- list()
   for (a in agents) {
     tls <- tryCatch(a$tools, error = function(e) list())
@@ -138,11 +146,18 @@ agent_manifest <- function(run) {
   do.call(rbind, rows)
 }
 
-# Internal: answer-relevant generation parameters per agent.
+# Internal: answer-relevant generation parameters per agent, as they were when
+# a closed run closed (its snapshot), else as they are now.
 #' @keywords internal
 #' @noRd
 .manifest_params <- function(r) {
-  agents <- r$agents %||% list()
+  if (is.data.frame(r$snapshot$params)) return(r$snapshot$params)
+  .params_of_agents(r$agents %||% list())
+}
+
+#' @keywords internal
+#' @noRd
+.params_of_agents <- function(agents) {
   rows <- list()
   for (a in agents) {
     mp <- tryCatch(a$config$model_params, error = function(e) NULL) %||% list()

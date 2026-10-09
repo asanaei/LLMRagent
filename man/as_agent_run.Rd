@@ -36,7 +36,10 @@ and that backs \code{\link[=agent_manifest]{agent_manifest()}}, \code{\link[=arc
 \details{
 Provenance is captured during every model call, so
 converting costs nothing during the run; the views are built on demand. For a
-bare \link{Agent}, the result is a live view of the agent's session so far.
+bare \link{Agent}, the result is a live view of the agent's session so far. A
+completed conversation, preset, or pipeline records its agents' tools,
+generation parameters, and memory as they were when it closed, so reusing or
+changing those agents later does not change its manifest or state view.
 }
 \seealso{
 \code{\link[=agent_manifest]{agent_manifest()}}, \code{\link[=archive_agent_study]{archive_agent_study()}}, \code{\link[=diagnostics]{diagnostics()}},

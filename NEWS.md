@@ -39,6 +39,12 @@
   stops the replay; the line used to be dropped and the input replaced by an
   empty state.
 
+- A completed conversation, preset, or pipeline records its agents' tools,
+  generation parameters, and memory when it closes. Its manifest and state view
+  used to read them from the live agents, so changing or reusing an agent
+  afterwards rewrote the earlier run's record. A bare `Agent` remains a live
+  view.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and

@@ -27,6 +27,9 @@ NULL
       utterances   = prov$utterances %||% NULL,   # kind-specific transcript rows, when supplied
       artifacts    = prov$artifacts %||% list(),
       agents       = prov$agents %||% list(),
+      # Data-only record of the agents' tools, generation parameters, and
+      # memory when the run closed; NULL for a live view of a bare Agent.
+      snapshot     = prov$snapshot %||% NULL,
       created_at   = prov$created_at %||% format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
       llmr_log     = prov$llmr_log %||% NULL,
       claim_type   = prov$claim_type %||% NA_character_,
@@ -54,7 +57,10 @@ NULL
 #'
 #' Provenance is captured during every model call, so
 #' converting costs nothing during the run; the views are built on demand. For a
-#' bare [Agent], the result is a live view of the agent's session so far.
+#' bare [Agent], the result is a live view of the agent's session so far. A
+#' completed conversation, preset, or pipeline records its agents' tools,
+#' generation parameters, and memory as they were when it closed, so reusing or
+#' changing those agents later does not change its manifest or state view.
 #'
 #' @param x An [Agent]; a conversation, debate, focus group, interview, or
 #'   deliberation; an `agent_pipeline_run`; an `agent_fanout_result`; an
@@ -218,16 +224,27 @@ as_tibble.agent_run <- function(x, ..., level = c("utterance","event","call","to
   do.call(rbind, rows)
 }
 
-# state level: each participating agent's memory transcript at run end.
+# state level: each participating agent's memory transcript at run end. A run
+# that closed carries that memory in its snapshot, so reusing an agent later
+# cannot change it; a live view of a bare Agent reads the agent's memory now.
 .run_state <- function(x) {
-  agents <- x$agents %||% list()
+  st <- x$snapshot$state
+  if (is.data.frame(st)) {
+    st$run_id <- rep(x$run_id, nrow(st))
+    return(st)
+  }
+  .state_of_agents(x$agents %||% list(), x$run_id)
+}
+
+# Internal: the memory transcripts of `agents`, one row per message.
+.state_of_agents <- function(agents, run_id) {
   rows <- list()
   for (a in agents) {
     tr <- tryCatch(a$transcript(), error = function(e) NULL)
     if (is.null(tr) || !nrow(tr)) next
     for (i in seq_len(nrow(tr))) {
       rows[[length(rows) + 1L]] <- tibble::tibble(
-        run_id = x$run_id, agent_id = a$id(), name = a$name, role = "memory",
+        run_id = run_id, agent_id = a$id(), name = a$name, role = "memory",
         message_index = i, msg_role = tr$role[i], content = tr$content[i])
     }
   }
