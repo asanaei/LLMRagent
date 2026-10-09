@@ -51,8 +51,9 @@ lists what was written and confirms the seal.
 \description{
 Writes a self-contained, hash-sealed archive of a run: the study
 \code{\link[=agent_manifest]{agent_manifest()}} (\code{manifest.json}), the transcript (\code{transcript.csv}), the
-event / call / tool / state views, the per-call provenance (\code{calls.jsonl},
-the LLMR audit log copied verbatim when one was kept), any artifacts, a
+event / call / tool / state views, the per-call provenance (\code{calls.jsonl}:
+this run's records from the LLMR audit log, copied verbatim, when one was
+kept), any artifacts, a
 drafted methods note (\code{README-methods.md}), and a \code{hashes.sha256} manifest
 over every file written. The archive is the supplementary material a paper
 can ship: it carries the declared specification and the calls' provenance, not
@@ -68,11 +69,20 @@ omission and redaction apply to this snapshot as well as the text files.
 Hashes are identity, not outcome. The \code{request_hash} in \code{calls.jsonl} is
 computed over the original request, so a call read back from the archive
 still matches the same call issued live. Redaction therefore never touches a
-hash or a request body, and when an LLMR audit log is present it is copied
-byte-for-byte rather than reserialized -- unless a privacy lever is engaged:
-with \code{include_messages = FALSE} each copied record's request body and reply
-text are removed (its precomputed \code{request_hash} is kept, so the join
-survives), and with \code{redact} the copied records' reply text is scrubbed.
+hash or a request body, and when an LLMR audit log is present this run's
+records are copied byte-for-byte rather than reserialized -- unless a privacy
+lever is engaged: with \code{include_messages = FALSE} each copied record's
+request body and reply text are removed (its precomputed \code{request_hash} is
+kept, so the join survives), and with \code{redact} the copied records' reply
+text is scrubbed.
+
+A record is this run's when its request hash matches one of the run's calls
+and, where both carry one, so does its response id, which keeps an earlier
+identical request out. The rest of the log is never copied. When the log
+cannot be read, or the run's calls carry no request hashes, \code{calls.jsonl} is
+rendered from the run's own call records instead, with a warning. When a
+privacy lever cannot be applied, the copied records are removed and
+\code{calls.jsonl} is not written.
 }
 \examples{
 \dontrun{

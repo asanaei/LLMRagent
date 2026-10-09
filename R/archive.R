@@ -17,8 +17,9 @@
 #'
 #' Writes a self-contained, hash-sealed archive of a run: the study
 #' [agent_manifest()] (`manifest.json`), the transcript (`transcript.csv`), the
-#' event / call / tool / state views, the per-call provenance (`calls.jsonl`,
-#' the LLMR audit log copied verbatim when one was kept), any artifacts, a
+#' event / call / tool / state views, the per-call provenance (`calls.jsonl`:
+#' this run's records from the LLMR audit log, copied verbatim, when one was
+#' kept), any artifacts, a
 #' drafted methods note (`README-methods.md`), and a `hashes.sha256` manifest
 #' over every file written. The archive is the supplementary material a paper
 #' can ship: it carries the declared specification and the calls' provenance, not
@@ -33,11 +34,20 @@
 #' Hashes are identity, not outcome. The `request_hash` in `calls.jsonl` is
 #' computed over the original request, so a call read back from the archive
 #' still matches the same call issued live. Redaction therefore never touches a
-#' hash or a request body, and when an LLMR audit log is present it is copied
-#' byte-for-byte rather than reserialized -- unless a privacy lever is engaged:
-#' with `include_messages = FALSE` each copied record's request body and reply
-#' text are removed (its precomputed `request_hash` is kept, so the join
-#' survives), and with `redact` the copied records' reply text is scrubbed.
+#' hash or a request body, and when an LLMR audit log is present this run's
+#' records are copied byte-for-byte rather than reserialized -- unless a privacy
+#' lever is engaged: with `include_messages = FALSE` each copied record's
+#' request body and reply text are removed (its precomputed `request_hash` is
+#' kept, so the join survives), and with `redact` the copied records' reply
+#' text is scrubbed.
+#'
+#' A record is this run's when its request hash matches one of the run's calls
+#' and, where both carry one, so does its response id, which keeps an earlier
+#' identical request out. The rest of the log is never copied. When the log
+#' cannot be read, or the run's calls carry no request hashes, `calls.jsonl` is
+#' rendered from the run's own call records instead, with a warning. When a
+#' privacy lever cannot be applied, the copied records are removed and
+#' `calls.jsonl` is not written.
 #'
 #' @param run An object accepted by [as_agent_run()] (an [Agent], a conversation
 #'   or preset result, a pipeline, an experiment, or an `agent_run`).
@@ -135,49 +145,64 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
 
   # ---- calls.jsonl (per-call provenance; a true LLMR audit log) -------------
   # Always a file LLMR::llm_log_read() can parse. When a live audit log was
-  # active during the run it is copied verbatim (its request hashes must still
-  # match a live call). Otherwise the per-call spans (which carry the rendered
-  # request body, the served model id, usage, and the reply) are rendered into
-  # the same audit-record schema, so the request body is real, not reconstructed.
+  # active during the run, this run's records are copied from it verbatim
+  # (their request hashes must still match a live call). Otherwise, and
+  # whenever the run's records cannot be picked out of the live log, the
+  # per-call spans (which carry the rendered request body, the served model id,
+  # usage, and the reply) are rendered into the same audit-record schema, so
+  # the request body is real, not reconstructed. The whole live log is never
+  # copied: it can hold other studies' calls.
   calls_source <- tryCatch({
     dest <- file.path(path, "calls.jsonl")
     log <- r$llmr_log
     if (!is.null(log) && length(log) == 1L && !is.na(log) && file.exists(log)) {
-      # Filter the live session log to THIS run's calls, by request hash, so a
-      # session with prior unrelated calls does not leak them into the archive.
       run_hashes <- tryCatch(
         stats::na.omit(archive_levels$call$request_hash),
         error = function(e) character(0))
-      n_kept <- NA_integer_
-      if (length(run_hashes)) {
-        n_kept <- .filter_log_to_hashes(log, dest, run_hashes)
-      } else {
-        file.copy(log, dest, overwrite = TRUE)  # no hashes known: copy whole log
-      }
-      # The privacy levers apply to the copied lines too: include_messages =
-      # FALSE strips each record's request body and reply text (the precomputed
-      # request_hash is kept, so the join survives); a redactor scrubs the
-      # reply text. Only with neither lever is the copy byte-for-byte.
-      if (!isTRUE(include_messages) || !is.null(redact)) {
-        .privacy_scrub_log(dest, include_messages = include_messages,
+      run_ids <- tryCatch(
+        stats::na.omit(archive_levels$call$response_id),
+        error = function(e) character(0))
+      n_kept <- if (length(run_hashes)) {
+        .filter_log_to_hashes(log, dest, run_hashes, run_ids)
+      } else NA_integer_
+      if (is.na(n_kept)) {
+        warning(if (length(run_hashes)) {
+          "The active LLMR audit log could not be read, so calls.jsonl is rendered from the run's own call records instead of copied from the log."
+        } else {
+          "This run's calls carry no request hashes to match in the active LLMR audit log, so calls.jsonl is rendered from the run's own call records instead of copied from the log."
+        }, call. = FALSE)
+        .write_audit_calls(r, dest, include_messages = include_messages,
                            redactor = redactor)
-      }
-      if (identical(n_kept, 0L)) {
-        # An honest flag: the live log had none of this run's calls (e.g. it
-        # was rotated or belongs to another session), so calls.jsonl is empty
-        # and the archive must not claim live-log provenance for its calls.
-        warning("The active LLMR audit log contains no records matching this ",
-                "run's request hashes; calls.jsonl is empty and the archive ",
-                "is marked accordingly.", call. = FALSE)
-        "live_llmr_log_empty"
       } else {
-        "live_llmr_log"
+        # The privacy levers apply to the copied lines too: include_messages =
+        # FALSE strips each record's request body and reply text (the
+        # precomputed request_hash is kept, so the join survives); a redactor
+        # scrubs the reply text. Only with neither lever is the copy
+        # byte-for-byte.
+        if (!isTRUE(include_messages) || !is.null(redact)) {
+          .privacy_scrub_log(dest, include_messages = include_messages,
+                             redactor = redactor)
+        }
+        if (identical(n_kept, 0L)) {
+          # The live log had none of this run's calls (e.g. it was rotated or
+          # belongs to another session), so calls.jsonl is empty and the
+          # archive must not claim live-log provenance for its calls.
+          warning("The active LLMR audit log contains no records matching this ",
+                  "run's request hashes; calls.jsonl is empty and the archive ",
+                  "is marked accordingly.", call. = FALSE)
+          "live_llmr_log_empty"
+        } else {
+          "live_llmr_log"
+        }
       }
     } else {
       .write_audit_calls(r, dest, include_messages = include_messages,
                          redactor = redactor)
     }
-  }, error = function(e) "none")
+  }, error = function(e) {
+    warning("calls.jsonl was not written: ", conditionMessage(e), call. = FALSE)
+    "none"
+  })
   if (!identical(calls_source, "none")) files <- c(files, "calls.jsonl")
 
   # ---- tools.csv / state.csv (governed tool calls; agent memory at end) -----
@@ -320,20 +345,25 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
 # Copy a live LLMR audit log to `dest`, keeping only the records whose
 # request_hash is in `keep_hashes` (this run's calls). Uses llm_log_read()'s
 # manifest, which computes request_hash exactly as a live call would, so the
-# match is on the same identity the run's call level carries. Falls back to a
-# full copy if the manifest cannot be built. Returns the number of records
-# written (NA for the full-copy fallback), so the caller can flag an archive
-# whose live log turned out to contain none of the run's calls.
+# match is on the same identity the run's call level carries. An identical
+# request sent earlier (a pilot, another study) has the same hash, so a record
+# that carries a response_id is kept only when that id is one of `keep_ids`.
+# Returns the number of records written, or NA without writing anything when
+# the log cannot be read, so the caller never copies an unfiltered log.
 #' @keywords internal
 #' @noRd
-.filter_log_to_hashes <- function(log, dest, keep_hashes) {
+.filter_log_to_hashes <- function(log, dest, keep_hashes, keep_ids = character(0)) {
   parsed <- tryCatch(LLMR::llm_log_read(log), error = function(e) NULL)
   if (is.null(parsed) || is.null(parsed$manifest) || !nrow(parsed$manifest)) {
-    file.copy(log, dest, overwrite = TRUE)
     return(invisible(NA_integer_))
   }
   man <- parsed$manifest
-  keep_idx <- man$idx[man$request_hash %in% keep_hashes]
+  rec_ids <- vapply(parsed$records, function(r) {
+    id <- r$rec$response_id
+    if (is.character(id) && length(id) == 1L) id else NA_character_
+  }, character(1))
+  id_ok <- if (length(keep_ids)) is.na(rec_ids) | rec_ids %in% keep_ids else TRUE
+  keep_idx <- man$idx[man$request_hash %in% keep_hashes & id_ok]
   raw_lines <- vapply(parsed$records, function(r) r$raw %||% "", character(1))
   out_lines <- raw_lines[keep_idx]
   con <- file(dest, open = "wb")
@@ -352,8 +382,14 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
 #' @keywords internal
 #' @noRd
 .privacy_scrub_log <- function(dest, include_messages = TRUE, redactor = NULL) {
-  parsed <- tryCatch(LLMR::llm_log_read(dest), error = function(e) NULL)
-  if (is.null(parsed) || !length(parsed$records)) return(invisible(dest))
+  parsed <- tryCatch(LLMR::llm_log_read(dest), error = function(e) e)
+  if (inherits(parsed, "error")) {
+    # Never leave an unscrubbed copy behind when the privacy options were asked for.
+    unlink(dest)
+    stop("the privacy options could not be applied (", conditionMessage(parsed),
+         "), so the copied call records were removed", call. = FALSE)
+  }
+  if (!length(parsed$records)) return(invisible(dest))
   man <- parsed$manifest
   lines <- vapply(seq_along(parsed$records), function(i) {
     rec <- parsed$records[[i]]$rec

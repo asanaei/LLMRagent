@@ -12,6 +12,13 @@
   examined. It used to report `clean = TRUE`, including for experiments whose
   cells return reply text and therefore expose no agents at all.
 
+- `archive_agent_study()` never copies a whole live audit log into an archive.
+  It used to do so when the run had no request hashes or the log could not be
+  read, which put other studies' requests and replies into `calls.jsonl`, even
+  with `include_messages = FALSE`. Records are matched on response id as well
+  as request hash, which keeps an earlier identical request out, and a privacy
+  option that cannot be applied removes the copied records.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and
