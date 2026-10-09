@@ -33,6 +33,12 @@
   request hash cannot be computed is recorded without one, with a warning,
   instead of being dropped.
 
+- `replay_run()` raises `llmragent_replay_mismatch` when a replay finishes
+  before reaching the end of the recorded run; such a replay used to pass. A
+  recorded log line that is not valid JSON, or a missing input snapshot, now
+  stops the replay; the line used to be dropped and the input replaced by an
+  empty state.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and

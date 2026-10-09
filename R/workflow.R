@@ -400,7 +400,10 @@ fork_workflow <- function(x, wf, at = NULL, new_dir = NULL, mutate = NULL,
 #' (agent) nodes, does not require the sampled text to match (model output is
 #' nondeterministic); `verify = "strict"` requires every node to match (sound
 #' only for fully deterministic graphs or archive-served calls). A mismatch
-#' raises `llmragent_replay_mismatch` naming the first divergent node.
+#' raises `llmragent_replay_mismatch` naming the first divergent node; so does
+#' a replay that finishes before reaching the end of the recorded run. A
+#' recorded log with a line that is not valid JSON, or an unreadable input
+#' snapshot, stops the replay with an error.
 #'
 #' A run containing a [human_gate()] replays up to the gate and pauses there,
 #' verifying the executed nodes before it; a pause is not an executed node, so
@@ -420,9 +423,18 @@ replay_run <- function(x, wf, verify = c("structural", "strict"),
   dir <- .wf_dir_of(x)
   recorded <- .wf_read_log(dir)
   if (!nrow(recorded)) stop("No recorded run to replay.", call. = FALSE)
-  input_state <- tryCatch(readRDS(file.path(dir, "state",
-    sort(list.files(file.path(dir, "state"), pattern = "\\.rds$"))[1])),
-    error = function(e) list())
+  # The replay must start from the recorded input; an empty state in its place
+  # would replay a different run.
+  snaps <- sort(list.files(file.path(dir, "state"), pattern = "\\.rds$"))
+  if (!length(snaps)) {
+    stop("The recorded run's input state could not be read (no snapshot in ",
+         file.path(dir, "state"), "), so it cannot be replayed.", call. = FALSE)
+  }
+  input_state <- tryCatch(readRDS(file.path(dir, "state", snaps[1])),
+    error = function(e) {
+      stop("The recorded run's input state could not be read (",
+           conditionMessage(e), "), so it cannot be replayed.", call. = FALSE)
+    })
 
   fresh <- run_workflow(wf, state = input_state,
                         checkpoint_dir = file.path(tempdir(), paste0("wf-replay-", .llmragent_id("ck"))),
@@ -474,6 +486,17 @@ replay_run <- function(x, wf, verify = c("structural", "strict"),
         class = c("llmragent_replay_mismatch", "error", "condition"),
         node = nm, recorded = rh, replayed = fh)
     }
+  }
+  # A replay that finished with fewer executed steps than the record left part
+  # of the recorded run unverified: that is a divergence too. (A replay paused
+  # at a human gate stops early by design and is not checked here.)
+  if (identical(fresh$status, "done") && length(fresh_idx) < nrow(rec_ok)) {
+    k <- length(fresh_idx) + 1L
+    rlang::abort(
+      sprintf(paste0("Replay diverged: it finished after %d step(s), but the record has %d; ",
+                     "recorded step %d ('%s') was not replayed."),
+              length(fresh_idx), nrow(rec_ok), k, rec_ok$node[k]),
+      class = c("llmragent_replay_mismatch", "error", "condition"), node = rec_ok$node[k])
   }
   fresh$steps$replay_match <- matches
   fresh
@@ -530,9 +553,16 @@ workflow_from_pipeline <- function(agents) {
 .wf_read_log <- function(dir) {
   f <- file.path(dir, "run.jsonl")
   if (!file.exists(f)) return(tibble::tibble(node = character(0), status = character(0), state_hash = character(0)))
-  lines <- readLines(f, warn = FALSE); lines <- lines[nzchar(trimws(lines))]
-  recs <- lapply(lines, function(l) tryCatch(jsonlite::fromJSON(l), error = function(e) NULL))
-  recs <- Filter(Negate(is.null), recs)
+  lines <- readLines(f, warn = FALSE)
+  keep <- nzchar(trimws(lines))
+  # A damaged record must not be read as a shorter run: stop at the first line
+  # that is not valid JSON, naming it.
+  recs <- lapply(which(keep), function(i) {
+    tryCatch(jsonlite::fromJSON(lines[i]), error = function(e) {
+      stop(sprintf("Line %d of %s is not valid JSON, so the recorded run cannot be read.",
+                   i, f), call. = FALSE)
+    })
+  })
   if (!length(recs)) return(tibble::tibble(node = character(0), status = character(0), state_hash = character(0)))
   do.call(rbind, lapply(recs, function(r) tibble::tibble(
     node = r$node %||% NA_character_, status = r$status %||% NA_character_,

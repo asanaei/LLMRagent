@@ -33,7 +33,10 @@ checks deterministic nodes (functions/evaluators) exactly and, for model
 (agent) nodes, does not require the sampled text to match (model output is
 nondeterministic); \code{verify = "strict"} requires every node to match (sound
 only for fully deterministic graphs or archive-served calls). A mismatch
-raises \code{llmragent_replay_mismatch} naming the first divergent node.
+raises \code{llmragent_replay_mismatch} naming the first divergent node; so does
+a replay that finishes before reaching the end of the recorded run. A
+recorded log with a line that is not valid JSON, or an unreadable input
+snapshot, stops the replay with an error.
 }
 \details{
 A run containing a \code{\link[=human_gate]{human_gate()}} replays up to the gate and pauses there,
