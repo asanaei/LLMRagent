@@ -27,6 +27,12 @@
   or more axes it used only the first replicate of each unit and level. A
   paraphrase shortfall warns, and no usable paraphrase is an error.
 
+- A failed `agent_fanout_synthesis()` worker becomes a failed call in the
+  converted run, with its error and request hash; it used to have no call
+  record, so diagnostics reported no failures. A strong-model call whose
+  request hash cannot be computed is recorded without one, with a warning,
+  instead of being dropped.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and

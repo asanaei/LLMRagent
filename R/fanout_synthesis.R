@@ -87,9 +87,16 @@ agent_fanout_synthesis <- function(problem, strong_config, cheap_config,
   # already carries the cheap-model records).
   strong_calls <- list()
   record_strong <- function(resp, request, stage) {
+    # A call that happened is always recorded; when its request hash cannot be
+    # computed, it is recorded without one, with a warning.
     rr <- tryCatch(LLMR::llm_response_record(resp, request = request,
                                              config = strong_config),
-                   error = function(e) NULL)
+                   error = function(e) {
+                     warning(sprintf(
+                       "The %s call's request hash could not be computed (%s); it is recorded without one.",
+                       stage, conditionMessage(e)), call. = FALSE)
+                     LLMR::llm_response_record(resp)
+                   })
     if (!is.null(rr)) {
       rr$stage <- stage
       # Keep the request messages and reply metadata alongside the record so the
@@ -240,13 +247,24 @@ as_agent_run.agent_fanout_result <- function(x, ...) {
                      model_version = sc$model_version, finish_reason = sc$finish_reason,
                      text = sc$text, usage = sc$usage))
   })
-  # Cheap workers: convert each response object in the workers frame.
+  # Cheap workers: convert each response object in the workers frame. A failed
+  # worker has no response object, but it is still a call: it gets a failed
+  # record (with its request hash when the request is known), so the run's call
+  # level and diagnostics count it.
   w <- x$workers
   if (is.data.frame(w) && "response" %in% names(w)) {
     for (i in seq_len(nrow(w))) {
       resp <- w$response[[i]]
-      rr <- if (inherits(resp, "llmr_response"))
-        tryCatch(LLMR::llm_response_record(resp), error = function(e) NULL) else NULL
+      rr <- if (inherits(resp, "llmr_response")) {
+        tryCatch(LLMR::llm_response_record(resp), error = function(e) NULL)
+      } else {
+        msg <- if ("error_message" %in% names(w) && !is.na(w$error_message[i]))
+          w$error_message[i] else "the worker call failed"
+        req <- if ("messages" %in% names(w)) w$messages[[i]] else NULL
+        cfg <- if ("config" %in% names(w)) w$config[[i]] else NULL
+        tryCatch(LLMR::llm_response_record(simpleError(msg), request = req, config = cfg),
+                 error = function(e) LLMR::llm_response_record(simpleError(msg)))
+      }
       spans[[length(spans) + 1L]] <- list(
         span_id = .llmragent_id("span"), parent_id = NA_character_,
         run_id = prov$run_id, agent_id = "worker",
