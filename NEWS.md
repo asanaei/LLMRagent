@@ -19,6 +19,14 @@
   as request hash, which keeps an earlier identical request out, and a privacy
   option that cannot be applied removes the copied records.
 
+- `agent_robustness()` counts a failed measurement (an error, `NA`, or a
+  non-scalar value from `measure`) as a failed cell, records it in
+  `measure_error`, and warns; such cells used to vanish while the failure rate
+  stayed at zero. With nothing measured, the summary is one row with
+  `fragile = NA`. Agreement across an axis now uses every replicate; with two
+  or more axes it used only the first replicate of each unit and level. A
+  paraphrase shortfall warns, and no usable paraphrase is an error.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and

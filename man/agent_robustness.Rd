@@ -45,9 +45,15 @@ is already scalar.}
 }
 \value{
 An object of class \code{agent_robustness}: a list with \code{cells} (the full
-perturbed design with \code{measure_value}), \code{by_axis} (one row per axis-level
-with \code{instability}, \code{dispersion}, \code{agreement_alpha}, \code{failure_rate},
-\code{flips_vs_baseline}, \code{delta_mean}), and \code{overall} (a \code{fragile} flag).
+perturbed design with \code{measure_value} and \code{measure_error}), \code{by_axis} (one
+row per axis-level with \code{instability}, \code{dispersion}, \code{agreement_alpha},
+\code{failure_rate}, \code{flips_vs_baseline}, \code{delta_mean}), and \code{overall} (a
+\code{fragile} flag). A cell counts as failed when its run raised an error or
+when \code{measure} raised an error or returned anything other than one non-\code{NA}
+value; failed cells are counted in \code{failure_rate} and excluded from the
+other statistics. Agreement pairs replicate r at one level with replicate r
+at another, so every replicate is used. When no cell could be measured,
+\code{dispersion}, \code{max_instability}, and \code{fragile} are \code{NA}.
 }
 \description{
 Runs a procedure across the cross-product of perturbation axes and reports,

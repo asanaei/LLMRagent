@@ -143,9 +143,15 @@ vary_option_order <- function(..., seed = 110) {
 #' @param quiet Passed to [agent_experiment()].
 #' @param ... Passed to [agent_experiment()].
 #' @return An object of class `agent_robustness`: a list with `cells` (the full
-#'   perturbed design with `measure_value`), `by_axis` (one row per axis-level
-#'   with `instability`, `dispersion`, `agreement_alpha`, `failure_rate`,
-#'   `flips_vs_baseline`, `delta_mean`), and `overall` (a `fragile` flag).
+#'   perturbed design with `measure_value` and `measure_error`), `by_axis` (one
+#'   row per axis-level with `instability`, `dispersion`, `agreement_alpha`,
+#'   `failure_rate`, `flips_vs_baseline`, `delta_mean`), and `overall` (a
+#'   `fragile` flag). A cell counts as failed when its run raised an error or
+#'   when `measure` raised an error or returned anything other than one non-`NA`
+#'   value; failed cells are counted in `failure_rate` and excluded from the
+#'   other statistics. Agreement pairs replicate r at one level with replicate r
+#'   at another, so every replicate is used. When no cell could be measured,
+#'   `dispersion`, `max_instability`, and `fragile` are `NA`.
 #' @seealso [agent_experiment()], [LLMR::llm_replicate()], [LLMR::llm_agreement()]
 #' @examples
 #' \dontrun{
@@ -176,6 +182,16 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
       # Paraphrase the ACTUAL prompt, and keep the original as the baseline
       # level, so perturb$prompt() returns a real paraphrase of the real prompt.
       paras <- .generate_paraphrases(ax$prompt, ax$n, ax$config)
+      if (!length(paras)) {
+        stop("Paraphrase generation returned no usable paraphrases, so the ",
+             "prompt axis has nothing to compare.", call. = FALSE)
+      }
+      if (length(paras) < ax$n) {
+        warning(sprintf(paste0(
+          "Asked for %d paraphrases and received %d; the prompt axis compares the ",
+          "original with %d paraphrase(s)."), ax$n, length(paras), length(paras)),
+          call. = FALSE)
+      }
       lv <- c(original = ax$prompt,
               stats::setNames(paras, paste0("paraphrase_", seq_along(paras))))
       ax$mode <- "templates"
@@ -203,15 +219,38 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
   exp <- agent_experiment(full, wrapped, reps = reps, parallel = parallel,
                           quiet = quiet, ...)
 
-  # Reduce each cell's result to a scalar measure.
-  mv <- vapply(exp$result, function(res) {
-    if (is.null(res)) return(NA_character_)
-    val <- if (is.function(measure)) tryCatch(measure(res), error = function(e) NA)
-           else if (is.character(measure)) tryCatch(res[[measure]], error = function(e) NA)
-           else res
-    if (is.null(val) || length(val) != 1L) NA_character_ else as.character(val)
-  }, character(1))
-  exp$measure_value <- mv
+  # Reduce each cell's result to a scalar measure. A cell whose run succeeded
+  # but whose measure failed, or gave something other than one value, is a
+  # failed measurement: it is recorded in `measure_error` and counted as a
+  # failure, not dropped.
+  measured <- lapply(exp$result, function(res) {
+    if (is.null(res)) return(list(value = NA_character_, error = NA_character_))
+    val <- tryCatch(
+      if (is.function(measure)) measure(res)
+      else if (is.character(measure)) res[[measure]]
+      else res,
+      error = function(e) e)
+    if (inherits(val, "error")) {
+      return(list(value = NA_character_, error = conditionMessage(val)))
+    }
+    if (is.null(val) || length(val) != 1L) {
+      return(list(value = NA_character_,
+                  error = sprintf("the measure returned %d values, not one",
+                                  length(val))))
+    }
+    if (is.na(val)) return(list(value = NA_character_, error = "the measure returned NA"))
+    list(value = as.character(val), error = NA_character_)
+  })
+  exp$measure_value <- vapply(measured, `[[`, character(1), "value")
+  exp$measure_error <- vapply(measured, `[[`, character(1), "error")
+  n_measure_failed <- sum(!is.na(exp$measure_error))
+  if (n_measure_failed) {
+    cli::cli_warn(c(
+      sprintf("The measure failed in %d of %d cell(s); they count as failures.",
+              n_measure_failed, nrow(exp)),
+      i = sprintf("First reason: %s", gsub("}", "}}", gsub("{", "{{",
+        exp$measure_error[!is.na(exp$measure_error)][1], fixed = TRUE), fixed = TRUE))))
+  }
 
   axis_names <- names(axes)
   by_axis <- .robustness_by_axis(exp, axis_names, baseline)
@@ -272,7 +311,8 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
 #' @noRd
 .robustness_by_axis <- function(exp, axis_names, baseline) {
   rows <- list()
-  ok <- is.na(exp$error)
+  # A cell counts as measured only when its run and its measure both succeeded.
+  ok <- is.na(exp$error) & is.na(exp$measure_error %||% rep(NA_character_, nrow(exp)))
   mv <- exp$measure_value
   is_num <- suppressWarnings(!all(is.na(as.numeric(mv[ok & !is.na(mv)]))))
   for (ax in axis_names) {
@@ -314,7 +354,7 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
 .fill_axis_alpha <- function(rows, exp, ax, ok, mv, is_num = FALSE) {
   alpha <- tryCatch({
     other <- setdiff(names(exp), c(ax, "result", "error", "duration", "rep",
-                                   "measure_value", ".unit"))
+                                   "measure_value", "measure_error", ".unit"))
     df <- exp[ok, , drop = FALSE]
     # A numeric measure gets an interval Krippendorff alpha (LLMR >= 0.8.9);
     # a categorical one stays nominal. Numeric values are kept as numbers so
@@ -327,11 +367,16 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
       df$.unit_key <- as.character(stats::ave(seq_len(nrow(df)), df[[ax]],
                                               FUN = seq_along))
     } else {
-      df$.unit_key <- apply(df[, other, drop = FALSE], 1L, paste, collapse = "|")
+      # The unit is the combination of the other design columns and the
+      # replication, so replicate r at one level pairs with replicate r at
+      # another and every replicate enters the agreement.
+      df$.unit_key <- paste(apply(df[, other, drop = FALSE], 1L, paste, collapse = "|"),
+                            df$rep, sep = "#rep")
     }
     # Pivot to one column per axis level, one row per unit, by hand: stats::reshape
     # mangles a timevar whose values look numeric (e.g. "0"/"1" collapse into a
-    # single malformed column). The first measure per (unit, level) wins.
+    # single malformed column). Units are unique per level unless the design
+    # itself repeats a row; then the first measure per (unit, level) is used.
     df <- df[!duplicated(df[, c(".unit_key", ax)]), c(".unit_key", ax, ".m"), drop = FALSE]
     levs <- unique(as.character(df[[ax]]))
     units <- unique(df$.unit_key)
@@ -351,7 +396,11 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
                                 metric = if (isTRUE(is_num)) "interval" else "nominal")
       ag$summary$krippendorff_alpha
     }
-  }, error = function(e) NA_real_)
+  }, error = function(e) {
+    warning(sprintf("Agreement across the levels of axis '%s' could not be computed: %s",
+                    ax, conditionMessage(e)), call. = FALSE)
+    NA_real_
+  })
   for (i in seq_along(rows)) if (identical(rows[[i]]$axis, ax)) rows[[i]]$agreement_alpha <- alpha
   rows
 }
@@ -359,15 +408,20 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
 #' @keywords internal
 #' @noRd
 .robustness_overall <- function(exp, by_axis) {
-  worst <- if (nrow(by_axis)) by_axis$axis[which.max(by_axis$instability)] else NA_character_
+  failed <- !is.na(exp$error) | !is.na(exp$measure_error %||% rep(NA_character_, nrow(exp)))
+  inst <- by_axis$instability
+  alph <- by_axis$agreement_alpha
+  # With no measured cell there is no instability to report: one row of NAs
+  # (fragile = NA), never a zero-row table or a -Inf/Inf summary.
+  measured <- any(!is.na(inst))
   tibble::tibble(
     n_cells = nrow(exp),
-    failure_rate = mean(!is.na(exp$error)),
-    worst_axis = worst,
-    max_instability = suppressWarnings(max(by_axis$instability, na.rm = TRUE)),
-    min_alpha = suppressWarnings(min(by_axis$agreement_alpha, na.rm = TRUE)),
+    failure_rate = mean(failed),
+    worst_axis = if (measured) by_axis$axis[which.max(inst)] else NA_character_,
+    max_instability = if (measured) max(inst, na.rm = TRUE) else NA_real_,
+    min_alpha = if (any(!is.na(alph))) min(alph, na.rm = TRUE) else NA_real_,
     n_axes = length(unique(by_axis$axis)),
-    fragile = isTRUE(suppressWarnings(max(by_axis$instability, na.rm = TRUE)) > 0.1)
+    fragile = if (measured) max(inst, na.rm = TRUE) > 0.1 else NA
   )
 }
 
@@ -402,6 +456,7 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
 #' @noRd
 .norm_entropy <- function(x) {
   x <- x[!is.na(x)]
+  if (!length(x)) return(NA_real_)   # nothing measured: dispersion is unknown
   if (length(x) < 2L) return(0)
   p <- prop.table(table(x))
   h <- -sum(p * log(p))
