@@ -5,7 +5,7 @@ description: Governed language-model agents for research workflows in R, built o
 
 # LLMRagent usage capsule
 
-LLMRagent 0.8.2 requires LLMR 0.8.11 or later. It treats agents as research
+LLMRagent 0.8.2 requires LLMR 0.8.13 or later. It treats agents as research
 instruments whose prompts, calls, tool use, and limits should remain
 inspectable.
 
@@ -120,6 +120,12 @@ resumed$checkpoint
 Approval decisions are `"approve"`, `"reject"`, and `"edit"`. Rejection does
 not run the tool. `resume_run()` returns an `agent_resume_result` with ordinary
 fields rather than attributes.
+
+A tool call whose arguments are not a JSON object, and every call in a reply
+cut off by the output-token limit, is not run and does not pause for approval:
+the model receives an error result and can call the tool again, as with
+`LLMR::call_llm_tools()`. Such calls appear in the tool view with status
+`"refused"` and do not count toward `max_tool_calls`.
 
 ## Delegation, pipelines, and conversations
 

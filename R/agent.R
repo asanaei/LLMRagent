@@ -307,7 +307,8 @@ Agent <- R6::R6Class(
     #' The token columns sum the counts providers reported. `n_unknown_usage`
     #' counts model calls and embedding operations whose sent or received
     #' count was not reported; it is `NA` when the agent was restored from
-    #' accounting that did not keep this count. The counters include tool-loop
+    #' accounting, or resumed from an approval checkpoint, that did not keep
+    #' this count. The counters include tool-loop
     #' rounds and embedding operations that have no call record of their own,
     #' so they need not equal [diagnostics()] over the agent's call level.
     usage = function() {
@@ -581,12 +582,20 @@ Agent <- R6::R6Class(
       hist <- if (is.list(resp)) resp$tool_history else NULL
       hist <- hist %||% attr(resp, "tool_history")
       if (is.data.frame(hist) && nrow(hist)) {
+        # A call refused for unparseable arguments or a truncated reply is
+        # in the history, with the error result the model received, but it
+        # did not run: it is recorded with status "refused", is not counted
+        # as a tool call, and is not checked by tool-stage guardrails.
+        refused <- vapply(seq_len(nrow(hist)), function(i)
+          .tool_row_refused(hist$arguments[i], hist$result[i]), logical(1))
         accounted_tools <- as.integer(loop$accounted_tool_calls %||% 0L)
+        executed <- as.integer(loop$tool_calls %||% sum(!refused))
         private$n_tool_calls <- private$n_tool_calls +
-          max(0L, nrow(hist) - accounted_tools)
+          max(0L, executed - accounted_tools)
         for (i in seq_len(nrow(hist))) {
           private$span_add(
             "tool", tool = hist$name[i],
+            status = if (refused[i]) "refused" else NA_character_,
             note = substr(hist$result[i], 1L, 200L),
             meta = list(
               arguments = hist$arguments[i],
@@ -598,8 +607,10 @@ Agent <- R6::R6Class(
           # result. A blocking guardrail aborts the exchange (a poisoned tool
           # result does not silently reach downstream use); every verdict is
           # recorded as a guardrail event.
-          private$run_tool_guardrails(hist$name[i], hist$arguments[i],
-                                      hist$result[i], phase = "post")
+          if (!refused[i]) {
+            private$run_tool_guardrails(hist$name[i], hist$arguments[i],
+                                        hist$result[i], phase = "post")
+          }
         }
       }
       private$span_add(
@@ -803,7 +814,11 @@ Agent <- R6::R6Class(
 #'   brief: background, dispositions, speech style. A [persona_frame()] is
 #'   accepted too.
 #' @param tools A `LLMR::llm_tool()` or list of them. Tool calls the model
-#'   makes are executed automatically and fed back until it answers.
+#'   makes are executed automatically and fed back until it answers. A call
+#'   whose arguments are not a JSON object, or that comes from a reply cut off
+#'   by the output-token limit, is not run: the model receives an error result
+#'   and can call the tool again, and the call is recorded with status
+#'   `"refused"` without counting toward `max_tool_calls`.
 #' @param memory A [memory] object; default keeps the last 40 messages.
 #' @param budget A [budget()]; default unlimited.
 #' @param guardrails Optional [guardrails()] to check the agent's inputs,
@@ -840,15 +855,14 @@ agent <- function(name, config, persona = NULL, tools = list(),
   if (length(x) != 1L || is.na(x)) NA_integer_ else as.integer(x)
 }
 
+# The number of a tool loop's model calls whose usage was not reported. LLMR's
+# call_llm_tools() and the native loop both record it. A loop record without
+# it (an approval checkpoint saved by an earlier version) can still answer for
+# zero or one model call; for more, the count is unknown.
 .loop_unknown_usage <- function(loop) {
   if (!is.null(loop$n_unknown_usage)) return(as.integer(loop$n_unknown_usage))
   n <- loop$model_calls %||% 0L
   if (n == 0L) return(0L)
   if (n == 1L) return(as.integer(is.na(.usage_count(loop$sent)) || is.na(.usage_count(loop$rec))))
-  rlang::warn(
-    paste("The tool-loop record does not contain enough information to recover",
-          "its unknown-usage count; LLMR 0.8.13 or later reports it."),
-    .frequency = "once",
-    .frequency_id = "llmragent-loop-unknown-usage")
   NA_integer_
 }

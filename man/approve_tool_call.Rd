@@ -26,8 +26,17 @@ The checkpoint with the decision recorded.
 When a run pauses at an approval-gated tool, it surfaces a checkpoint (the
 \code{checkpoint} field of the \code{llmragent_pending_approval} condition, or the
 object returned by \code{human_gate()} in batch mode). Inspect
-\code{checkpoint$pending} (the tool name, arguments, and an argument hash), then
+\code{checkpoint$pending} (the tool name, the parsed arguments, the argument text
+as the model sent it, and an argument hash), or print the checkpoint, then
 record a decision with this function and continue with \code{\link[=resume_run]{resume_run()}}.
+}
+\details{
+The loop never pauses for a call whose arguments are not a JSON object; it
+returns an error result to the model instead, as \code{LLMR::call_llm_tools()}
+does. A checkpoint saved by an earlier version can still hold such a call.
+Approving it is an error, since the tool would run without the arguments the
+model meant to send; reject it, or supply the arguments with
+\code{decision = "edit"}.
 }
 \seealso{
 \code{\link[=human_gate]{human_gate()}}, \code{\link[=resume_run]{resume_run()}}, \code{\link[=agent_tool]{agent_tool()}}

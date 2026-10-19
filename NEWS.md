@@ -1,5 +1,19 @@
 # LLMRagent 0.8.2
 
+- LLMRagent requires LLMR 0.8.13 or later. An agent never runs a tool call
+  whose arguments are not a JSON object, nor any call in a reply cut off by
+  the output-token limit: the model receives an error result and can call the
+  tool again, as with `LLMR::call_llm_tools()`. Agents with a finite budget,
+  tool guardrails, or an approval-gated tool used to run such a call with the
+  tool's default arguments, and the approval gate showed the reviewer an empty
+  argument list that approving would run. A refused call appears in the tool
+  view with status `"refused"`, does not pause for approval, and does not
+  count toward `max_tool_calls` or `agent$usage()$tool_calls`; the calls
+  LLMR's own loop refused used to be counted. A checkpoint shows the argument
+  text as the model sent it, and `approve_tool_call()` raises an error when
+  asked to approve a call, from a checkpoint saved by an earlier version,
+  whose arguments do not parse.
+
 - `agent_experiment()` refuses design columns named `rep`, `result`, `error`,
   or `duration`, which it used to overwrite, and accepts only a positive whole
   number for `reps`. Converting an experiment with `as_agent_run()` records the

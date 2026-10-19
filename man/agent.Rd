@@ -26,7 +26,11 @@ brief: background, dispositions, speech style. A \code{\link[=persona_frame]{per
 accepted too.}
 
 \item{tools}{A \code{LLMR::llm_tool()} or list of them. Tool calls the model
-makes are executed automatically and fed back until it answers.}
+makes are executed automatically and fed back until it answers. A call
+whose arguments are not a JSON object, or that comes from a reply cut off
+by the output-token limit, is not run: the model receives an error result
+and can call the tool again, and the call is recorded with status
+\code{"refused"} without counting toward \code{max_tool_calls}.}
 
 \item{memory}{A \link{memory} object; default keeps the last 40 messages.}
 

@@ -134,7 +134,9 @@ as_agent_run.Agent <- function(x, ...) {
 #' @rdname as_agent_run
 #' @param level The grain to return: `"utterance"` (analysis grain),
 #'   `"event"` (every span), `"call"` (stored [LLMR::llm_response_record()]
-#'   rows), `"tool"` (tool invocations with arg/result hashes), or
+#'   rows), `"tool"` (tool invocations with arg/result hashes; a call that
+#'   was not run because its arguments did not parse or its reply was cut off
+#'   has status `"refused"`), or
 #'   `"state"` (each participating agent's memory at run end).
 #' @exportS3Method tibble::as_tibble agent_run
 as_tibble.agent_run <- function(x, ..., level = c("utterance","event","call","tool","state")) {

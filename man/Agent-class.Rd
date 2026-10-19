@@ -20,7 +20,8 @@ is internal; its constructor arguments are not a public contract.
 The token columns sum the counts providers reported. \code{n_unknown_usage}
 counts model calls and embedding operations whose sent or received
 count was not reported; it is \code{NA} when the agent was restored from
-accounting that did not keep this count. The counters include tool-loop
+accounting, or resumed from an approval checkpoint, that did not keep
+this count. The counters include tool-loop
 rounds and embedding operations that have no call record of their own,
 so they need not equal \code{\link[=diagnostics]{diagnostics()}} over the agent's call level.
 }

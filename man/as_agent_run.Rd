@@ -20,7 +20,9 @@ its second, unnamed argument.}
 
 \item{level}{The grain to return: \code{"utterance"} (analysis grain),
 \code{"event"} (every span), \code{"call"} (stored \code{\link[LLMR:llm_response_record]{LLMR::llm_response_record()}}
-rows), \code{"tool"} (tool invocations with arg/result hashes), or
+rows), \code{"tool"} (tool invocations with arg/result hashes; a call that
+was not run because its arguments did not parse or its reply was cut off
+has status \code{"refused"}), or
 \code{"state"} (each participating agent's memory at run end).}
 }
 \value{

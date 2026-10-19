@@ -17,7 +17,10 @@
 #' the model calls a tool whose governance marks `requires_approval = TRUE`, the
 #' loop raises `llmragent_pending_approval` carrying a checkpoint. The same
 #' pause points let agents enforce tool guardrails before execution and budgets
-#' before each model round.
+#' before each model round. Like `LLMR::call_llm_tools()`, it never runs a call
+#' whose arguments are not a JSON object, nor any call in a reply cut off by
+#' the output-token limit: the model receives an error result instead, and the
+#' call neither pauses for approval nor counts toward the tool-call budget.
 #'
 #' @keywords internal
 #' @noRd
@@ -72,6 +75,7 @@
     }
 
     calls <- LLMR::tool_calls(resp)
+    truncated <- identical(resp$finish_reason, "length")
     if (!length(calls)) {
       attr(resp, "messages") <- convo
       attr(resp, "tool_history") <- .native_history(history)
@@ -99,6 +103,14 @@
 
     result_blocks <- list()
     for (cl in calls) {
+      refusal <- .native_tool_refusal(cl, truncated)
+      if (!is.null(refusal)) {
+        history[[length(history) + 1L]] <- .native_history_entry(round, cl, refusal)
+        result_blocks <- .native_append_result(result_blocks, convo, cl, refusal,
+                                                is_anthropic)
+        if (!is_anthropic) convo <- attr(result_blocks, "convo")
+        next
+      }
       tools_used <- if (inherits(agent, "Agent")) {
         agent$usage()$tool_calls
       } else {
@@ -137,8 +149,7 @@
       if (inherits(agent, "Agent")) {
         agg <- agent$.__enclos_env__$private$account_pending_loop(agg)
       }
-      history[[length(history) + 1L]] <- list(round = round, name = cl$name,
-                                              arguments = cl$arguments, result = result)
+      history[[length(history) + 1L]] <- .native_history_entry(round, cl, result)
       result_blocks <- .native_append_result(result_blocks, convo, cl, result,
                                               is_anthropic)
       if (!is_anthropic) convo <- attr(result_blocks, "convo")
@@ -184,6 +195,81 @@
   }
   messages
 }
+# Tool arguments as LLMR::tool_calls() reads them (LLMR 0.8.13): absent,
+# empty, or `null` text means no arguments, which tools without parameters
+# rely on; any other text must parse to a JSON object. Used for calls recorded
+# before tool_calls() reported `arguments_ok`, such as those in an approval
+# checkpoint saved by an earlier version.
+.native_parse_arguments <- function(raw) {
+  none <- structure(list(), names = character(0))
+  if (is.null(raw)) return(list(arguments = none, raw = NA_character_, ok = TRUE))
+  if (is.list(raw)) return(list(arguments = raw, raw = NA_character_, ok = TRUE))
+  if (!is.character(raw) || length(raw) != 1L || is.na(raw)) {
+    return(list(arguments = none, raw = paste(format(raw), collapse = " "), ok = FALSE))
+  }
+  if (!nzchar(trimws(raw)) || identical(trimws(raw), "null")) {
+    return(list(arguments = none, raw = raw, ok = TRUE))
+  }
+  args <- tryCatch(jsonlite::fromJSON(raw, simplifyVector = FALSE),
+                   error = function(e) NULL)
+  is_object <- is.list(args) && (!length(args) || !is.null(names(args)))
+  if (!is_object) return(list(arguments = none, raw = raw, ok = FALSE))
+  list(arguments = args, raw = raw, ok = TRUE)
+}
+
+# The tool result sent back instead of running a call, or NULL when the call
+# may run. The wording is LLMR::call_llm_tools()'s, so a model sees the same
+# message whichever loop runs its tools: a reply cut off by the output-token
+# limit may hold a partial call, and arguments that did not parse would leave
+# the tool to its defaults.
+.native_truncation_refusal <- paste0(
+  "ERROR: the reply was cut off by the output-token limit while ",
+  "this tool call was being written, so the tool was not run. ",
+  "Call it again with complete arguments.")
+
+.native_tool_refusal <- function(call, truncated = FALSE) {
+  if (isTRUE(truncated)) return(.native_truncation_refusal)
+  if (!isTRUE(call$arguments_ok %||% TRUE)) {
+    return(paste0("ERROR: the arguments for this tool call are not valid JSON, ",
+                  "so the tool was not run. Received: ",
+                  substr(call$arguments_raw %||% "", 1L, 500L)))
+  }
+  NULL
+}
+
+# Whether a tool-history row records a call that was refused rather than run.
+# Both loops keep the raw text of unparseable arguments and answer a truncated
+# reply with a fixed message, so the row itself says which it was.
+.tool_row_refused <- function(arguments, result) {
+  unparsed <- is.character(arguments) && length(arguments) == 1L &&
+    !is.na(arguments) && !.native_parse_arguments(arguments)$ok
+  unparsed || identical(result, .native_truncation_refusal)
+}
+
+# A call recorded before tool_calls() reported `arguments_ok` (an older
+# checkpoint) gets the flag from the argument text in the assistant turn that
+# requested it. Provider-parsed arguments (Anthropic) are always usable.
+.native_call_flags <- function(cl, convo) {
+  if (!is.null(cl$arguments_ok)) return(cl)
+  raw <- NULL
+  for (m in rev(convo %||% list())) {
+    tcs <- if (is.list(m)) m$tool_calls else NULL
+    if (!is.list(tcs)) next
+    for (tc in tcs) if (identical(tc$id, cl$id)) raw <- tc$`function`$arguments %||% ""
+    if (!is.null(raw)) break
+  }
+  parsed <- .native_parse_arguments(raw)
+  cl$arguments_raw <- parsed$raw
+  cl$arguments_ok <- parsed$ok
+  cl
+}
+
+.native_history_entry <- function(round, cl, result) {
+  list(round = round, name = cl$name, arguments = cl$arguments,
+       arguments_raw = if (isTRUE(cl$arguments_ok %||% TRUE)) NULL else cl$arguments_raw,
+       result = result)
+}
+
 .native_exec <- function(tool, cl) {
   if (is.null(tool)) return(paste0("ERROR: unknown tool '", cl$name, "'"))
   res <- tryCatch(do.call(tool$fn, cl$arguments),
@@ -211,7 +297,9 @@
     round = vapply(history, function(h) as.integer(h$round), integer(1)),
     name = vapply(history, function(h) as.character(h$name), character(1)),
     arguments = vapply(history, function(h)
-      as.character(jsonlite::toJSON(h$arguments, auto_unbox = TRUE, null = "null")), character(1)),
+      h$arguments_raw %||%
+        as.character(jsonlite::toJSON(h$arguments, auto_unbox = TRUE, null = "null")),
+      character(1)),
     result = vapply(history, function(h) as.character(h$result), character(1)))
 }
 
@@ -246,6 +334,8 @@
     result_blocks = result_blocks,
     remaining = remaining,
     pending = list(id = pending$id, name = pending$name, arguments = pending$arguments,
+                   arguments_raw = pending$arguments_raw %||% NA_character_,
+                   arguments_ok = pending$arguments_ok %||% TRUE,
                    arguments_hash = LLMR::llm_hash(pending$arguments)),
     decision = NULL
   ), class = "llmragent_checkpoint")
@@ -256,8 +346,16 @@
 #' When a run pauses at an approval-gated tool, it surfaces a checkpoint (the
 #' `checkpoint` field of the `llmragent_pending_approval` condition, or the
 #' object returned by `human_gate()` in batch mode). Inspect
-#' `checkpoint$pending` (the tool name, arguments, and an argument hash), then
+#' `checkpoint$pending` (the tool name, the parsed arguments, the argument text
+#' as the model sent it, and an argument hash), or print the checkpoint, then
 #' record a decision with this function and continue with [resume_run()].
+#'
+#' The loop never pauses for a call whose arguments are not a JSON object; it
+#' returns an error result to the model instead, as `LLMR::call_llm_tools()`
+#' does. A checkpoint saved by an earlier version can still hold such a call.
+#' Approving it is an error, since the tool would run without the arguments the
+#' model meant to send; reject it, or supply the arguments with
+#' `decision = "edit"`.
 #'
 #' @param checkpoint A `llmragent_checkpoint`.
 #' @param decision `"approve"` (run the tool as requested), `"reject"` (skip it;
@@ -273,6 +371,14 @@ approve_tool_call <- function(checkpoint, decision = c("approve", "reject", "edi
   decision <- match.arg(decision)
   if (identical(decision, "edit") && !is.list(edit)) {
     stop("decision = \"edit\" needs `edit` (a replacement argument list).", call. = FALSE)
+  }
+  pend <- .native_call_flags(checkpoint$pending, checkpoint$convo)
+  if (identical(decision, "approve") && !isTRUE(pend$arguments_ok)) {
+    stop(sprintf(paste0(
+      "The arguments of the pending call to '%s' are not valid JSON, so it cannot ",
+      "be approved as sent: %s. Reject it, or supply the arguments with ",
+      "decision = \"edit\"."), pend$name, .native_show_raw(pend$arguments_raw)),
+      call. = FALSE)
   }
   checkpoint$decision <- list(decision = decision, edit = edit)
   checkpoint
@@ -348,7 +454,7 @@ resume_run <- function(checkpoint, ...) {
     ag$restore_accounting(usage = st$usage, spans = st$spans, agent_id = st$agent_id)
   }
 
-  pend <- checkpoint$pending
+  pend <- .native_call_flags(checkpoint$pending, checkpoint$convo)
   dec <- checkpoint$decision
   agg <- checkpoint$agg
   if (!is.null(ag)) {
@@ -360,7 +466,16 @@ resume_run <- function(checkpoint, ...) {
     for (t in tools) if (identical(t$name, name)) return(t)
     .find_tool(ag, name)
   }
-  result <- switch(dec$decision,
+  # An approval recorded for a call whose arguments did not parse (possible
+  # only in a checkpoint from an earlier version) does not run the tool: the
+  # model receives the same error result the loop would have sent.
+  refusal <- if (identical(dec$decision, "approve")) .native_tool_refusal(pend) else NULL
+  if (!is.null(refusal)) {
+    warning(sprintf(paste0(
+      "The approved call to '%s' was not run: its arguments are not valid JSON. ",
+      "The model received an error result."), pend$name), call. = FALSE)
+  }
+  result <- if (!is.null(refusal)) refusal else switch(dec$decision,
     reject = sprintf("DENIED: the human reviewer rejected the call to '%s'.", pend$name),
     {  # approve or edit
       args <- if (identical(dec$decision, "edit")) dec$edit else pend$arguments
@@ -388,8 +503,10 @@ resume_run <- function(checkpoint, ...) {
   rb <- .native_append_result(result_blocks, convo, cl, result, is_anthropic)
   if (!is_anthropic) convo <- attr(rb, "convo") else result_blocks <- rb
   history <- c(checkpoint$history, list(list(round = checkpoint$round,
-    name = pend$name, arguments = args_used, result = result)))
-  agg$tool_calls <- agg$tool_calls + 1L
+    name = pend$name, arguments = args_used,
+    arguments_raw = if (is.null(refusal)) NULL else pend$arguments_raw,
+    result = result)))
+  if (is.null(refusal)) agg$tool_calls <- agg$tool_calls + 1L
   if (!is.null(ag)) {
     agg <- ag$.__enclos_env__$private$account_pending_loop(agg)
   }
@@ -400,7 +517,14 @@ resume_run <- function(checkpoint, ...) {
   rest <- checkpoint$remaining %||% list()
   if (length(rest) > 1L) rest <- rest[-1L] else rest <- list()
   for (i in seq_along(rest)) {
-    cl2 <- rest[[i]]
+    cl2 <- .native_call_flags(rest[[i]], checkpoint$convo)
+    refusal2 <- .native_tool_refusal(cl2)
+    if (!is.null(refusal2)) {
+      history <- c(history, list(.native_history_entry(checkpoint$round, cl2, refusal2)))
+      rb <- .native_append_result(result_blocks, convo, cl2, refusal2, is_anthropic)
+      if (!is_anthropic) convo <- attr(rb, "convo") else result_blocks <- rb
+      next
+    }
     tool2 <- find_in(cl2$name)
     gov2 <- if (is.null(tool2)) NULL else .tool_governance(tool2)
     if (!is.null(gov2) && isTRUE(gov2$requires_approval)) {
@@ -427,8 +551,7 @@ resume_run <- function(checkpoint, ...) {
     if (!is.null(ag)) {
       agg <- ag$.__enclos_env__$private$account_pending_loop(agg)
     }
-    history <- c(history, list(list(round = checkpoint$round, name = cl2$name,
-                                    arguments = cl2$arguments, result = result2)))
+    history <- c(history, list(.native_history_entry(checkpoint$round, cl2, result2)))
     rb <- .native_append_result(result_blocks, convo, cl2, result2, is_anthropic)
     if (!is_anthropic) convo <- attr(rb, "convo") else result_blocks <- rb
   }
@@ -465,6 +588,14 @@ print.agent_resume_result <- function(x, ...) {
   invisible(x)
 }
 
+# Argument text for a reviewer, quoted so that empty or blank text is visible.
+.native_show_raw <- function(raw) {
+  if (is.null(raw) || !length(raw) || is.na(raw[1])) return("(none)")
+  txt <- as.character(raw[1])
+  if (nchar(txt) > 500L) txt <- paste0(substr(txt, 1L, 500L), "...")
+  encodeString(txt, quote = "\"")
+}
+
 #' @keywords internal
 #' @noRd
 .find_tool <- function(agent, name) {
@@ -477,7 +608,15 @@ print.agent_resume_result <- function(x, ...) {
 print.llmragent_checkpoint <- function(x, ...) {
   cat(sprintf("<llmragent_checkpoint | pending tool: %s | %s>\n",
               x$pending$name, x$created_at))
-  cat("  arguments:", as.character(jsonlite::toJSON(x$pending$arguments, auto_unbox = TRUE)), "\n")
+  pend <- .native_call_flags(x$pending, x$convo)
+  if (!isTRUE(pend$arguments_ok)) {
+    cat("  arguments (not valid JSON; approving would not run the tool):",
+        .native_show_raw(pend$arguments_raw), "\n")
+  } else if (is.character(pend$arguments_raw) && !is.na(pend$arguments_raw)) {
+    cat("  arguments as sent:", .native_show_raw(pend$arguments_raw), "\n")
+  } else {
+    cat("  arguments:", as.character(jsonlite::toJSON(pend$arguments, auto_unbox = TRUE)), "\n")
+  }
   cat("  decision: ", if (is.null(x$decision)) "none (call approve_tool_call())" else x$decision$decision, "\n")
   invisible(x)
 }

@@ -286,7 +286,7 @@ All articles and reference: <https://asanaei.github.io/LLMRagent/>
 
 ## Relation to LLMR
 
-[LLMR](https://asanaei.github.io/LLMR/) version 0.8.11 or later supplies the
+[LLMR](https://asanaei.github.io/LLMR/) version 0.8.13 or later supplies the
 common provider interface used by LLMRagent. `agent()` accepts an
 `LLMR::llm_config()` object, so provider and model settings are shared between
 the packages.

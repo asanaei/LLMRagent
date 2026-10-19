@@ -274,7 +274,7 @@ test_that("native loop unknown usage survives serialized approval without double
   })
 })
 
-test_that("aggregate loops consume supplied unknown usage and warn when it is unrecoverable", {
+test_that("aggregate loops consume supplied unknown usage and report NA when it is absent", {
   resp <- fake_response()
   attr(resp, "tool_loop") <- list(model_calls = 3L, sent = 10L, rec = 5L,
                                    n_unknown_usage = 2L)
@@ -283,8 +283,7 @@ test_that("aggregate loops consume supplied unknown usage and warn when it is un
   expect_identical(a$usage()$n_unknown_usage, 2L)
   attr(resp, "tool_loop")$n_unknown_usage <- NULL
   b <- fake_agent("B", list(resp))
-  rlang::reset_warning_verbosity("llmragent-loop-unknown-usage")
-  expect_warning(b$chat("q"), "unknown-usage count")
+  expect_no_warning(b$chat("q"))
   expect_identical(b$usage()$n_unknown_usage, NA_integer_)
   expect_identical(b$usage()$tokens_total, 15L)
 })
