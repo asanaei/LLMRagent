@@ -16,7 +16,10 @@
 
 - `agent_experiment()` refuses design columns named `rep`, `result`, `error`,
   or `duration`, which it used to overwrite, and accepts only a positive whole
-  number for `reps`. Converting an experiment with `as_agent_run()` records the
+  number for `reps`, naming the value it refuses ("`reps` must be one positive
+  whole number, not 2.7."). It used to run `reps = 2.7` as 2 replications and
+  `reps = 0` or `-2` as 1, and `reps = Inf` failed with an unrelated error
+  from `seq_len()`. Converting an experiment with `as_agent_run()` records the
   status of every cell in a `cells` artifact and warns when cells contributed
   no events; failed cells and cells that returned plain values used to vanish
   from the converted run. The run's design reports the number of converted

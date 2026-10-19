@@ -71,9 +71,11 @@ agent_experiment <- function(design, run_fn, reps = 1L,
       "result; rename them before running."),
       paste0("'", clash, "'", collapse = ", ")), call. = FALSE)
   }
-  if (!is.numeric(reps) || length(reps) != 1L || is.na(reps) || reps < 1 ||
-      reps != floor(reps)) {
-    stop("`reps` must be one positive whole number.", call. = FALSE)
+  if (!is.numeric(reps) || length(reps) != 1L || !is.finite(reps) || reps < 1 ||
+      reps != floor(reps) || reps > .Machine$integer.max) {
+    shown <- paste(deparse(reps, width.cutoff = 60L), collapse = " ")
+    if (nchar(shown) > 60L) shown <- paste0(substr(shown, 1L, 57L), "...")
+    stop("`reps` must be one positive whole number, not ", shown, ".", call. = FALSE)
   }
   reps <- as.integer(reps)
 

@@ -15,11 +15,21 @@ test_that("design columns the result would overwrite are refused before running"
 })
 
 test_that("reps must be one positive whole number", {
-  for (r in list(0, -2, 2.7, NA, c(1, 2), "3")) {
-    expect_error(agent_experiment(data.frame(x = 1), quiet = TRUE, reps = r,
-                                  run_fn = function(cond, rep) 1),
-                 "`reps` must be one positive whole number")
+  bad <- list(0, -2, 2.7, NA, NA_real_, c(1, 2), "3", Inf, -Inf, NaN, 1e10,
+              NULL, TRUE)
+  shown <- c("0", "-2", "2.7", "NA", "NA_real_", "c(1, 2)", '"3"', "Inf",
+             "-Inf", "NaN", "1e+10", "NULL", "TRUE")
+  ran <- 0L
+  for (i in seq_along(bad)) {
+    expect_error(agent_experiment(data.frame(x = 1), quiet = TRUE, reps = bad[[i]],
+                                  run_fn = function(cond, rep) { ran <<- ran + 1L; 1 }),
+                 paste0("`reps` must be one positive whole number, not ", shown[i], "."),
+                 fixed = TRUE)
   }
+  expect_identical(ran, 0L)
+  expect_error(agent_experiment(data.frame(x = 1), quiet = TRUE, reps = 1:100,
+                                run_fn = function(cond, rep) 1),
+               "not 1:100.", fixed = TRUE)
   res <- agent_experiment(data.frame(x = 1), quiet = TRUE, reps = 2,
                           run_fn = function(cond, rep) rep)
   expect_identical(res$rep, 1:2)
