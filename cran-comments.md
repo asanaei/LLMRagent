@@ -1,38 +1,41 @@
-# cran-comments for LLMRagent 0.8.1
+# cran-comments for LLMRagent 0.8.2
 
 ## Submission
 
-Update to 0.8.1, a fast-follow correction of the 0.8.0 release. Study
-archives write a data-only, hash-sealed record (no live objects, no
-credentials); blocking tool guardrails are evaluated before a tool's side
-effect runs; call and token budgets are re-checked across memory
-compaction, tool loops, and retrieval-memory embedding operations;
-save_agent() refuses a config carrying a literal API key; and the public
-surface narrows to supported contracts (the R6 generator is internal;
-agent() is the constructor).
+Update of LLMRagent 0.8.1 on CRAN. This release corrects records that were
+wrong without saying so. An agent no longer runs a tool call whose arguments
+did not parse, or that came from a reply cut off at the token limit; the
+model receives an error result instead. Converted experiments, robustness
+batteries, fan-out results, and workflow replays keep their failed cells,
+measurements, and calls rather than dropping them. A finished run's manifest
+and state view no longer change when its agents are reused. Diagnostics,
+manifests, reports, and archives report missing values with a warning where
+they used to report zeros, and archives no longer copy a whole live audit
+log. NEWS.md lists each change, with the new errors and warnings it
+introduces. Manifest hashes are computed as in 0.8.1.
 
 ## Dependencies
 
-Imports LLMR (>= 0.8.11), which is on CRAN. All other Imports and Suggests
-are on CRAN.
+Imports LLMR (>= 0.8.13). That version reports whether a tool call's
+arguments parsed, which this release relies on, and it is submitted to CRAN
+ahead of this package. All other Imports and Suggests are on CRAN.
 
 ## Test environments
 
-- local macOS (arm64), R 4.4.3: `R CMD check --as-cran`
+- local macOS 26.7 (arm64), R 4.4.3: `R CMD check --as-cran --no-manual`,
+  against LLMR 0.8.13
 
 ## R CMD check results
 
-0 errors | 0 warnings | 3 notes
+0 errors | 0 warnings | 1 note
 
-All three notes are environmental: CRAN incoming feasibility (new-version
-housekeeping), "unable to verify current time" (no network time service on
-the build machine), and the HTML manual note from an older system `tidy`
-that does not recognize the HTML5 elements R generates.
+The note is environmental: "unable to verify current time" (no network time
+service on the build machine).
 
 ## Tests and examples
 
-The test suite is fully offline: model calls are exercised through injected
-test doubles, so no API keys or network access are needed. Tests that would
-reach live providers are guarded by environment-variable keys and
-skip_on_cran(). Examples that would make a network call are wrapped in
-\dontrun{}.
+The test suite is offline: model calls go through injected test doubles or a
+stubbed transport, so no API keys or network access are needed. Tests that
+would reach live providers are guarded by environment-variable keys and
+skip_on_cran(). Examples run offline; the parts that would make a network
+call are wrapped in \dontrun{}.
