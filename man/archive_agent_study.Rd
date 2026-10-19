@@ -92,7 +92,10 @@ text is scrubbed.
 
 A record is this run's when its request hash matches one of the run's calls
 and, where both carry one, so does its response id, which keeps an earlier
-identical request out. The rest of the log is never copied. When the log
+identical request out. When a response id is missing on either side, or
+more records match than the run made calls, the function warns that an
+earlier identical request can be among the copied records. The rest of the
+log is never copied. When the log
 cannot be read, or the run's calls carry no request hashes, \code{calls.jsonl} is
 rendered from the run's own call records instead, with a warning. When a
 privacy lever cannot be applied, the copied records are removed and

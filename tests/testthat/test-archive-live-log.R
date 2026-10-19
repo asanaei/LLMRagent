@@ -80,3 +80,23 @@ test_that("a privacy scrub that cannot parse its file removes it", {
   expect_false(file.exists(file.path(dir, "calls.jsonl")))
   expect_false("calls.jsonl" %in% arc$files)
 })
+
+test_that("copied records the run cannot vouch for are reported", {
+  run <- private_run()
+  own <- own_lines(run)
+  # Two log records share the run's request hash and neither has a response id,
+  # as when a pilot sent the identical request before the run: both are kept,
+  # which is more records than the run made calls.
+  no_id <- sub('"response_id":"[^"]*",?', "", own)
+  expect_warning(out <- archive_with_log(run, c(no_id, no_id, unrelated_line)),
+                 "keeps 2 record\\(s\\) .* for 1 call\\(s\\).*2 of the copied record\\(s\\) were matched on request hash alone")
+  expect_length(out$calls, 2L)
+  # The run's own calls lacking response ids: matching falls back to the hash.
+  run2 <- private_run()
+  own2 <- own_lines(run2)
+  run2$spans[[1]]$meta$record$response_id <- NA_character_
+  expect_warning(archive_with_log(run2, c(own2, unrelated_line)),
+                 "1 of the copied record\\(s\\) were matched on request hash alone")
+  # One record per call, each matched on its response id: no warning.
+  expect_no_warning(archive_with_log(run, c(own, unrelated_line)))
+})

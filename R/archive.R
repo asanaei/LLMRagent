@@ -46,7 +46,10 @@
 #'
 #' A record is this run's when its request hash matches one of the run's calls
 #' and, where both carry one, so does its response id, which keeps an earlier
-#' identical request out. The rest of the log is never copied. When the log
+#' identical request out. When a response id is missing on either side, or
+#' more records match than the run made calls, the function warns that an
+#' earlier identical request can be among the copied records. The rest of the
+#' log is never copied. When the log
 #' cannot be read, or the run's calls carry no request hashes, `calls.jsonl` is
 #' rendered from the run's own call records instead, with a warning. When a
 #' privacy lever cannot be applied, the copied records are removed and
@@ -224,7 +227,8 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
           .privacy_scrub_log(dest, include_messages = include_messages,
                              redactor = redactor)
         }
-        if (identical(n_kept, 0L)) {
+        .warn_log_selection(n_kept, length(run_hashes))
+        if (identical(as.vector(n_kept), 0L)) {
           # The live log had none of this run's calls (e.g. it was rotated or
           # belongs to another session), so calls.jsonl is empty and the
           # archive must not claim live-log provenance for its calls.
@@ -399,7 +403,32 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
   con <- file(dest, open = "wb")
   on.exit(close(con), add = TRUE)
   if (length(out_lines)) writeLines(enc2utf8(out_lines), con, useBytes = TRUE)
-  invisible(length(out_lines))
+  # A record kept on its request hash alone (it, or every one of the run's
+  # calls, lacks a response id) cannot be told apart from an earlier identical
+  # request.
+  hash_only <- if (length(keep_ids)) sum(is.na(rec_ids[keep_idx])) else length(keep_idx)
+  invisible(structure(length(out_lines), n_hash_only = as.integer(hash_only)))
+}
+
+# Warn when the records copied from a live audit log may not be this run's
+# alone: more of them than the run has hashed calls, or records that could be
+# matched on request hash only.
+.warn_log_selection <- function(n_kept, n_run_calls) {
+  hash_only <- attr(n_kept, "n_hash_only") %||% 0L
+  parts <- character(0)
+  if (n_kept > n_run_calls) {
+    parts <- c(parts, sprintf(
+      "calls.jsonl keeps %d record(s) from the live LLMR audit log for %d call(s) of this run",
+      as.integer(n_kept), as.integer(n_run_calls)))
+  }
+  if (hash_only > 0L) {
+    parts <- c(parts, sprintf(paste0(
+      "%d of the copied record(s) were matched on request hash alone because a ",
+      "response id is missing, so an earlier identical request can be among them"),
+      hash_only))
+  }
+  if (length(parts)) warning(paste0(paste(parts, collapse = "; "), "."), call. = FALSE)
+  invisible(NULL)
 }
 
 # Apply the privacy levers to an already-written calls.jsonl copied from a

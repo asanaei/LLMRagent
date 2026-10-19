@@ -36,7 +36,10 @@
   read, which put other studies' requests and replies into `calls.jsonl`, even
   with `include_messages = FALSE`. Records are matched on response id as well
   as request hash, which keeps an earlier identical request out, and a privacy
-  option that cannot be applied removes the copied records.
+  option that cannot be applied removes the copied records. When a response id
+  is missing, or more records match than the run made calls, a warning says
+  that an earlier identical request can be among the copied records; such
+  duplicates used to be copied without notice.
 
 - `agent_robustness()` counts a failed measurement (an error, `NA`, or a
   non-scalar value from `measure`) as a failed cell, records it in
