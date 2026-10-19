@@ -10,7 +10,8 @@
 \method{report}{Agent}(x, ...)
 }
 \arguments{
-\item{x}{An object accepted by \code{\link[=as_agent_run]{as_agent_run()}}.}
+\item{x}{An \code{agent_run} or an \link{Agent}. Convert other results with
+\code{\link[=as_agent_run]{as_agent_run()}} first.}
 
 \item{...}{May include \code{task}, a one-clause description of what the model was
 asked to do (spliced into the methods paragraph).}
@@ -26,13 +27,21 @@ token paragraph drafted by \code{\link[LLMR:report]{LLMR::report()}} over the ru
 call-level rows, and a one-line limits note stating that the results are
 model-conditioned and are not estimates of a human population.
 }
+\details{
+When some successful calls reported no total-token usage, the report says
+so beside the token sums. When the call records cannot be read, or the
+methods paragraph or the claim-language check cannot be produced, the
+report warns and says in its text what is missing.
+}
 \examples{
+a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"), quiet = TRUE)
+report(a, task = "to answer a factual question")
+
 \dontrun{
-a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"))
 a$chat("Hello")
 report(a, task = "to answer a factual question")
 }
 }
 \seealso{
-\code{\link[=diagnostics]{diagnostics()}}, \code{\link[LLMR:report]{LLMR::report()}}
+\code{\link[=diagnostics]{diagnostics()}}, \code{\link[=agent_manifest]{agent_manifest()}}, \code{\link[LLMR:report]{LLMR::report()}}
 }

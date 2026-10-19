@@ -13,18 +13,19 @@ as_agent_run(x, ...)
 \arguments{
 \item{x}{An \link{Agent}; a conversation, debate, focus group, interview, or
 deliberation; an \code{agent_pipeline_run}; an \code{agent_fanout_result}; an
-\code{agent_experiment};
-or a \code{\link[LLMR:call_llm_par]{LLMR::call_llm_par()}}-style result frame.}
+\code{agent_experiment}; or an \code{agent_run}.}
 
-\item{...}{Unused.}
+\item{...}{Unused. \code{tibble::as_tibble()} also accepts the level name as
+its second, unnamed argument.}
 
 \item{level}{The grain to return: \code{"utterance"} (analysis grain),
-\code{"event"} (every span), \code{"call"} (one canonical \code{\link[LLMR:llm_response_record]{LLMR::llm_response_record()}}
-row per model call), \code{"tool"} (tool invocations with arg/result hashes), or
+\code{"event"} (every span), \code{"call"} (stored \code{\link[LLMR:llm_response_record]{LLMR::llm_response_record()}}
+rows), \code{"tool"} (tool invocations with arg/result hashes), or
 \code{"state"} (each participating agent's memory at run end).}
 }
 \value{
-An object of class \code{agent_run}.
+An object of class \code{agent_run}; \code{tibble::as_tibble()} returns the
+requested level as a tibble.
 }
 \description{
 \code{as_agent_run()} turns any high-level result into an \code{agent_run}: a single
@@ -40,6 +41,17 @@ bare \link{Agent}, the result is a live view of the agent's session so far. A
 completed conversation, preset, or pipeline records its agents' tools,
 generation parameters, and memory as they were when it closed, so reusing or
 changing those agents later does not change its manifest or state view.
+Workflow runs are not converted; they keep their own checkpoint and replay
+record (see \code{\link[=run_workflow]{run_workflow()}}).
+
+The call level holds the stored \code{\link[LLMR:llm_response_record]{LLMR::llm_response_record()}} rows. A tool
+exchange takes several model rounds but stores one record, for its final
+response, and memory compactions and embedding operations appear only as
+events. Records written under different LLMR versions are bound by column
+name; a column absent from some records is filled with missing values of
+the type the other records use. A call event whose record could not be
+built (status \code{"unrecorded"}) makes the call level an error that names the
+event, while the other levels remain available.
 }
 \seealso{
 \code{\link[=agent_manifest]{agent_manifest()}}, \code{\link[=archive_agent_study]{archive_agent_study()}}, \code{\link[=diagnostics]{diagnostics()}},

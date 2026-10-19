@@ -12,7 +12,8 @@ load_agent(path, tools = list(), embed_config = NULL)
 \item{tools}{Tools to re-attach (functions are not serialized).}
 
 \item{embed_config}{Required only when the saved agent used
-\code{\link[=memory_recall]{memory_recall()}}; the embedding config to rebuild it with.}
+\code{\link[=memory_recall]{memory_recall()}}; the embedding config to rebuild it with. Without it,
+the memory is restored as a plain buffer, with a warning.}
 }
 \value{
 An \link{Agent}.
@@ -23,5 +24,17 @@ contents, budget, guardrails, and accounting. Because the config holds an
 environment-variable reference rather than a key, the loaded agent works
 immediately wherever that variable is set. Call, token, and tool counters
 carry over, so a budget keeps binding across sessions; the wall-clock
-(\code{max_seconds}) budget restarts at load.
+(\code{max_seconds}) budget restarts at load. A file saved before the count of
+calls with unreported usage was kept loads with \code{n_unknown_usage} set to
+\code{NA}.
+}
+\examples{
+path <- tempfile(fileext = ".rds")
+save_agent(agent("Ada", LLMR::llm_config("groq", "openai/gpt-oss-20b"),
+                 quiet = TRUE), path)
+load_agent(path)
+unlink(path)
+}
+\seealso{
+\code{\link[=save_agent]{save_agent()}}, \code{\link[=budget]{budget()}}
 }

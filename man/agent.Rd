@@ -22,7 +22,8 @@ agent(
 
 \item{persona}{Optional system prompt: who this agent is, what it wants,
 how it speaks. For social-science personas, write it like a character
-brief: background, dispositions, speech style.}
+brief: background, dispositions, speech style. A \code{\link[=persona_frame]{persona_frame()}} is
+accepted too.}
 
 \item{tools}{A \code{LLMR::llm_tool()} or list of them. Tool calls the model
 makes are executed automatically and fed back until it answers.}
@@ -44,7 +45,8 @@ An \link{Agent} (R6) object.
 An agent is a persona plus a model: it remembers its conversation (see
 \link{memory}), can call R functions you expose as tools (via
 \code{LLMR::llm_tool()}), and refuses further calls when its \code{\link[=budget]{budget()}} runs out. Use
-\code{agent$chat()} for a stateful conversation, \code{agent$ask_structured()} for
+\code{agent$chat()} for a stateful conversation, \code{agent$reply()} for an exchange
+that leaves memory unchanged, \code{agent$ask_structured()} for
 schema-shaped answers, and pass agents to \code{\link[=conversation]{conversation()}}, \code{\link[=debate]{debate()}},
 \code{\link[=focus_group]{focus_group()}}, \code{\link[=interview]{interview()}}, or \code{\link[=deliberate]{deliberate()}} for multi-agent work.
 }
@@ -58,12 +60,21 @@ is never stored as something the model said.
 stop the next round. The token limit stops the next round once recorded
 use reaches it; one response can cross that threshold.
 }
+
+A reply that arrives but whose call record cannot be built is kept: the
+agent warns and records the exchange as an event with status
+\code{"unrecorded"}, with the reason in its note. \code{agent$usage()} sums the token
+counts providers reported and counts, in \code{n_unknown_usage}, the calls whose
+usage was not reported; see \link{Agent} for its columns.
 }
 \examples{
-\dontrun{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.7)
 ada <- agent("Ada", cfg,
              persona = "You are Ada, a meticulous statistician. Be brief.")
+ada
+ada$usage()
+
+\dontrun{
 ada$chat("In one sentence: what is overfitting?")
 ada$chat("And how would you detect it?")   # remembers the thread
 ada$chat("Walk me through cross-validation.", stream = TRUE)  # live tokens
@@ -72,5 +83,5 @@ ada$usage()
 }
 \seealso{
 \code{\link[=budget]{budget()}}, \link{memory}, \code{\link[=agent_as_tool]{agent_as_tool()}}, \code{\link[=agent_pipeline]{agent_pipeline()}},
-\code{\link[=conversation]{conversation()}}, \code{\link[=agent_experiment]{agent_experiment()}}
+\code{\link[=conversation]{conversation()}}, \code{\link[=agent_experiment]{agent_experiment()}}, \code{\link[=save_agent]{save_agent()}}
 }

@@ -10,27 +10,50 @@
 \method{diagnostics}{Agent}(x, ...)
 }
 \arguments{
-\item{x}{An object accepted by \code{\link[=as_agent_run]{as_agent_run()}} (an \link{Agent}, a conversation
-or preset result, a pipeline, an experiment, or an \code{agent_run}).}
+\item{x}{An \code{agent_run} or an \link{Agent}. Convert other results with
+\code{\link[=as_agent_run]{as_agent_run()}} first.}
 
 \item{...}{Unused.}
 }
 \value{
-A one-row tibble with \code{run_id}, \code{kind}, \code{n_calls}, \code{n_ok},
-\code{n_failed}, \code{ok_rate}, \code{n_truncated}, \code{n_filtered}, \code{tokens_sent},
-\code{tokens_received}, \code{tokens_total}, \code{reasoning_tokens}, \code{n_tool_calls},
-\code{n_blocked}, \code{duration_s}, and \code{manifest_hash}.
+A one-row tibble with the following columns.
+\describe{
+\item{\code{run_id}, \code{kind}}{Run identifier and kind.}
+\item{\code{n_calls}, \code{n_ok}, \code{n_failed}, \code{ok_rate}}{Stored call counts and success rate.}
+\item{\code{n_truncated}, \code{n_filtered}}{Counts of recorded finish reasons.}
+\item{\code{tokens_sent}, \code{tokens_received}, \code{tokens_total}, \code{reasoning_tokens}}{Sums of reported counts.}
+\item{\code{n_tool_calls}}{Rows in the tool view.}
+\item{\code{n_blocked}}{Events with status \code{"blocked"} or \code{"stopped"}.}
+\item{\code{duration_s}}{Sum of available call durations in seconds.}
+\item{\code{manifest_hash}}{Study manifest hash, or \code{NA} when unavailable.}
+\item{\code{n_unknown_tokens}}{Successful rows missing total-token usage,
+excluding recorded batch follow-on rows.}
+}
 }
 \description{
 Returns the small set of health numbers behind an \link{agent_run}: call counts,
-token totals, tool and blocked-event counts, wall-clock duration, and the
+token totals, tool and blocked-event counts, summed call durations, and the
 study's \code{manifest_hash}. Token and outcome figures are read through
 \code{\link[LLMR:llm_usage]{LLMR::llm_usage()}} over the run's call-level rows, so they match the rest of
-the LLMR ecosystem to the integer.
+the LLMR ecosystem.
+}
+\details{
+Token sums omit missing values, and \code{n_unknown_tokens} counts the successful
+calls that reported no total, so a sum of zero with a positive
+\code{n_unknown_tokens} does not mean that nothing was used. When a level of the
+run cannot be read, the figures that depend on it are \code{NA} and a warning
+names the level and the reason; the other figures are still computed. A run
+with no calls has zero counts and sums. \code{duration_s} adds the recorded call
+durations rather than measuring elapsed time, and is \code{NA} when calls exist
+but none recorded a duration. An agent's own accounting (\code{agent$usage()})
+can include tool-loop rounds, compactions, and embedding operations that
+have no call row, so the two need not agree.
 }
 \examples{
+a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"), quiet = TRUE)
+diagnostics(a)   # no calls yet: zero counts and sums
+
 \dontrun{
-a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"))
 a$chat("Hello")
 diagnostics(a)
 }

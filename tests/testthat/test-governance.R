@@ -1,4 +1,4 @@
-# Stage 2: tool governance, guardrails, and human approval gates. Offline.
+# Offline tests for tool governance, guardrails, and approval checkpoints.
 
 # ---- governed tools ---------------------------------------------------------
 
@@ -211,8 +211,7 @@ test_that("approve + resume runs the tool and completes", {
       `function` = list(name = "danger", arguments = '{"x":1}')))))))), class = "llmr_response")
   final_resp <- fake_response("All done after approval.")
 
-  # The tool records that it ran, so we can assert it actually executed on
-  # resume (not just that the final model text came back).
+  # Record tool execution separately from the final model response.
   ran <- new.env(); ran$called <- FALSE; ran$arg <- NA
   gated <- agent_tool(function(x) { ran$called <- TRUE; ran$arg <- x; paste0("executed:", x) },
                       name = "danger", description = "d",

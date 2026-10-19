@@ -23,7 +23,9 @@
 #' the run and derives nothing. It prefers `htmltools` when that package is
 #' installed; otherwise it builds the same content by hand with no optional
 #' dependencies. If no HTML page can be produced at all, it writes a structured
-#' text summary so the call still yields a file.
+#' text summary so the call still yields a file. A level that cannot be read
+#' is shown with the reason in place of its table, and the header marks
+#' figures that are unavailable or that include only reported token usage.
 #'
 #' @param run An [Agent] or any object accepted by [as_agent_run()].
 #' @param output Path to write. Defaults to a temp file with extension `.html`.
@@ -32,13 +34,12 @@
 #'   opened with [utils::browseURL()] after writing.
 #' @return The output path, invisibly, with class `agent_inspector_path` (its
 #'   print method reports where the file was written).
-#' @seealso [as_agent_run()], [agent_manifest()], [report()]
 #' @examples
-#' \dontrun{
-#' a <- agent("Ada", LLMR::llm_config("groq", "openai/gpt-oss-20b"))
-#' a$chat("Tell me something true.")
-#' view_run(a)
-#' }
+#' a <- agent("Ada", LLMR::llm_config("groq", "openai/gpt-oss-20b"), quiet = TRUE)
+#' page <- view_run(a, output = tempfile(fileext = ".html"), open = FALSE)
+#' page
+#' unlink(page)
+#' @seealso [as_agent_run()], [agent_manifest()], [report()]
 #' @export
 view_run <- function(run, output = NULL, open = interactive()) {
   r <- as_agent_run(run)
@@ -84,14 +85,13 @@ print.agent_inspector_path <- function(x, ...) {
 # ---- level projection -------------------------------------------------------
 
 # Project one grain to a tibble, guarded so a broken level cannot abort the
-# whole render. Returns a zero-row tibble on failure.
+# whole render. An unavailable level carries its extraction error.
 #' @keywords internal
 #' @noRd
 .view_level <- function(r, level) {
-  tryCatch(
-    tibble::as_tibble(as_tibble(r, level)),
-    error = function(e) tibble::tibble()
-  )
+  out <- .read_run_level(r, level)
+  if (is.null(out$error)) out$data else
+    structure(tibble::tibble(), extraction_error = out$error)
 }
 
 # Header facts pulled from the run and its manifest. Token and call totals come
@@ -100,12 +100,13 @@ print.agent_inspector_path <- function(x, ...) {
 #' @keywords internal
 #' @noRd
 .view_header <- function(r) {
-  calls <- .view_level(r, "call")
-  n_calls <- nrow(calls)
-  tok_sent <- if ("sent_tokens" %in% names(calls)) sum(calls$sent_tokens, na.rm = TRUE) else NA_real_
-  tok_rec  <- if ("rec_tokens"  %in% names(calls)) sum(calls$rec_tokens,  na.rm = TRUE) else NA_real_
-
-  mh <- tryCatch(agent_manifest(r)$manifest_hash, error = function(e) NA_character_)
+  extracted <- .read_run_level(r, "call")
+  calls <- extracted$data
+  u <- .call_usage(extracted)
+  n_calls <- u$n
+  tok_sent <- u$sent_tokens
+  tok_rec <- u$rec_tokens
+  mh <- tryCatch(.agent_manifest(r, extracted)$manifest_hash, error = function(e) NA_character_)
   mh_short <- if (is.character(mh) && length(mh) == 1L && !is.na(mh)) substr(mh, 1L, 12L) else NA_character_
 
   agents <- if (nrow(r$participants)) paste(r$participants$name, collapse = ", ") else "(none)"
@@ -118,14 +119,16 @@ print.agent_inspector_path <- function(x, ...) {
     created_at    = r$created_at %||% NA_character_,
     n_calls       = n_calls,
     tokens_sent   = tok_sent,
-    tokens_received = tok_rec
+    tokens_received = tok_rec,
+    n_unknown_tokens = u$n_unknown_tokens
   )
 }
 
 # ---- HTML escaping and minimal table rendering ------------------------------
 
 # Escape the five characters that matter inside HTML text and attribute values.
-# Used by the fallback path; the htmltools path escapes for us.
+# The fallback renderer uses this helper. htmltools escapes text in
+# the other rendering path.
 #' @keywords internal
 #' @noRd
 .html_escape <- function(x) {
@@ -158,6 +161,8 @@ print.agent_inspector_path <- function(x, ...) {
 #' @keywords internal
 #' @noRd
 .df_to_html_table <- function(df, anchor_col = NULL, link_cols = character(0)) {
+  err <- attr(df, "extraction_error")
+  if (!is.null(err)) return(paste0("<p class=\"empty\">Unavailable: ", .html_escape(err), "</p>"))
   df <- tibble::as_tibble(df)
   if (!ncol(df)) return("<p class=\"empty\">(none)</p>")
   if (!nrow(df)) {
@@ -248,7 +253,7 @@ print.agent_inspector_path <- function(x, ...) {
     tags$p(class = "meta", tags$strong(paste0(label, ": ")),
            tags$span(.view_cell(value)))
   }
-  num <- function(v) if (is.na(v %||% NA)) "NA" else format(v)
+  num <- function(v) if (is.na(v %||% NA)) "unavailable" else format(v)
 
   header <- htmltools::tagList(
     tags$h1(sprintf("Run inspector - %s", head$kind %||% "run")),
@@ -262,6 +267,7 @@ print.agent_inspector_path <- function(x, ...) {
            tags$strong("tokens sent: "), tags$span(num(head$tokens_sent)),
            HTML(" &middot; "),
            tags$strong("tokens received: "), tags$span(num(head$tokens_received))),
+    tags$p(class = "meta empty", .view_usage_note(head)),
     tags$p(class = "meta empty", .view_note())
   )
 
@@ -305,7 +311,7 @@ print.agent_inspector_path <- function(x, ...) {
 #' @keywords internal
 #' @noRd
 .view_build_text <- function(head, levels) {
-  num <- function(v) if (is.na(v %||% NA)) "NA" else format(v)
+  num <- function(v) if (is.na(v %||% NA)) "unavailable" else format(v)
   body <- c(
     "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>",
     .view_css(),
@@ -317,6 +323,7 @@ print.agent_inspector_path <- function(x, ...) {
     sprintf("created:  %s", head$created_at %||% "NA"),
     sprintf("calls: %s | tokens sent: %s | tokens received: %s",
             num(head$n_calls), num(head$tokens_sent), num(head$tokens_received)),
+    .html_escape(.view_usage_note(head)),
     .view_note(),
     "</pre>")
   for (nm in names(levels)) {
@@ -329,4 +336,11 @@ print.agent_inspector_path <- function(x, ...) {
   }
   body <- c(body, "</body></html>")
   body
+}
+
+.view_usage_note <- function(head) {
+  unknown <- head$n_unknown_tokens %||% NA_integer_
+  if (is.na(unknown)) "Token usage statistics are unavailable." else
+    if (unknown > 0L) sprintf("Token totals include only reported usage; %d successful call(s) reported no total.",
+                              unknown) else ""
 }

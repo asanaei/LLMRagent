@@ -2,17 +2,27 @@
 % Please edit documentation in R/manifest.R
 \name{agent_manifest}
 \alias{agent_manifest}
+\alias{print.agent_manifest}
 \title{Build the study manifest for a run}
 \usage{
 agent_manifest(run)
+
+\method{print}{agent_manifest}(x, ...)
 }
 \arguments{
 \item{run}{An object accepted by \code{\link[=as_agent_run]{as_agent_run()}} (a chat agent, a
 conversation, a preset, a pipeline, an experiment, an
 \code{agent_fanout_result}, or an \code{agent_run}).}
+
+\item{x}{An \code{agent_manifest}.}
+
+\item{...}{Unused.}
 }
 \value{
-An object of class \code{agent_manifest} (a list); see Details. Print shows
+An object of class \code{agent_manifest}: a list with \code{manifest_hash},
+\code{kind}, \code{run_id}, \code{design}, \code{personas}, \code{tools}, \code{workflow}, \code{models},
+\code{params}, \code{pkg_versions}, \code{created_at}, \code{n_calls}, \code{tokens_sent},
+\code{tokens_received}, \code{models_basis}, and \code{n_unknown_tokens}. Print shows
 the short hash, kind, models, and headline counts.
 }
 \description{
@@ -21,6 +31,19 @@ specifications, orchestration metadata, served model identifiers, generation
 parameters, and package versions. Its \code{manifest_hash} changes when a hashed
 component changes. It does not hash transcripts, replies, or unrecorded
 ambient state such as values captured by a tool closure.
+}
+\details{
+The manifest also reports, outside the hash, how many calls the run made
+and the tokens they reported. \code{n_unknown_tokens} counts the successful
+calls that reported no total. The model list is read from the call records
+when there are any (\code{models_basis = "calls"}) and from the participating
+agents otherwise (\code{"participants"}); since the model list is hashed, the
+two bases can give different hashes for otherwise identical runs. When the
+call records cannot be read, the manifest warns, reports the call count and
+token sums as \code{NA}, and takes the model list from the participants. An
+experiment's design records the number of cells that contributed events
+(\code{n_converted}); that count describes the outcome rather than the
+specification and is not hashed.
 }
 \seealso{
 \code{\link[=hash_persona]{hash_persona()}}, \code{\link[=hash_tool_spec]{hash_tool_spec()}}, \code{\link[=archive_agent_study]{archive_agent_study()}},

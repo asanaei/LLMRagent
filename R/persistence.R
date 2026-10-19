@@ -5,10 +5,13 @@
 
 #' Save an agent to disk
 #'
-#' Writes the agent's name, persona, config, memory contents, guardrails, and
-#' trace to an RDS file. Tools are functions and are not serialized; re-attach
-#' them at load time via `load_agent(tools = ...)`. Guardrails are serialized
-#' (their check functions travel through RDS) and restored automatically.
+#' Writes the agent's name, persona, config, memory contents, budget,
+#' guardrails, trace, and accounting to an RDS file. Tools are functions and
+#' are not serialized; re-attach them at load time via
+#' `load_agent(tools = ...)`. Guardrails are serialized (their check functions
+#' travel through RDS) and restored automatically. The accounting includes the
+#' count of calls whose usage was not reported (`n_unknown_usage`), so a
+#' reloaded agent's [budget()] warnings stay accurate.
 #'
 #' A config carrying a literal API key (one passed as a string rather than
 #' the usual environment-variable reference) is refused: saving it would
@@ -18,15 +21,19 @@
 #' @param path File path (`.rds`).
 #' @return `path`, invisibly.
 #' @examples
-#' \dontrun{
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b")
-#' a <- agent("Ada", cfg, persona = "Terse.")
-#' a$chat("Remember this: the project deadline is March 3.")
-#' save_agent(a, "ada.rds")
+#' a <- agent("Ada", cfg, persona = "Terse.", quiet = TRUE)
+#' a$memory$add("user", "Remember this: the project deadline is March 3.")
+#' path <- tempfile(fileext = ".rds")
+#' save_agent(a, path)
 #'
+#' ada <- load_agent(path)
+#' ada$transcript()   # the memory came along
+#' unlink(path)
+#'
+#' \dontrun{
 #' # a later session, any machine with GROQ_API_KEY set:
-#' ada <- load_agent("ada.rds")
-#' ada$chat("When is the deadline?")   # the memory came along
+#' ada$chat("When is the deadline?")
 #' }
 #' @seealso [load_agent()]
 #' @export
@@ -47,7 +54,7 @@ save_agent <- function(x, path) {
     spans = x$internal_spans(),
     agent_id = x$id(),
     usage = as.list(x$usage()[1, c("calls", "tokens_sent",
-                                   "tokens_received", "tool_calls")]),
+                                   "tokens_received", "tool_calls", "n_unknown_usage")]),
     budget = x$budget,
     guardrails = x$guardrail_set()
   )
@@ -62,13 +69,23 @@ save_agent <- function(x, path) {
 #' environment-variable reference rather than a key, the loaded agent works
 #' immediately wherever that variable is set. Call, token, and tool counters
 #' carry over, so a budget keeps binding across sessions; the wall-clock
-#' (`max_seconds`) budget restarts at load.
+#' (`max_seconds`) budget restarts at load. A file saved before the count of
+#' calls with unreported usage was kept loads with `n_unknown_usage` set to
+#' `NA`.
 #'
 #' @param path File path written by [save_agent()].
 #' @param tools Tools to re-attach (functions are not serialized).
 #' @param embed_config Required only when the saved agent used
-#'   [memory_recall()]; the embedding config to rebuild it with.
+#'   [memory_recall()]; the embedding config to rebuild it with. Without it,
+#'   the memory is restored as a plain buffer, with a warning.
 #' @return An [Agent].
+#' @examples
+#' path <- tempfile(fileext = ".rds")
+#' save_agent(agent("Ada", LLMR::llm_config("groq", "openai/gpt-oss-20b"),
+#'                  quiet = TRUE), path)
+#' load_agent(path)
+#' unlink(path)
+#' @seealso [save_agent()], [budget()]
 #' @export
 load_agent <- function(path, tools = list(), embed_config = NULL) {
   state <- readRDS(path)

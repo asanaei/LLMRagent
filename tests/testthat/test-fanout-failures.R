@@ -33,3 +33,60 @@ test_that("a failed worker is counted as a failed call", {
   expect_identical(d$n_failed, 1L)
   expect_equal(d$ok_rate, 0.5)
 })
+
+test_that("worker construction failures and legacy workers remain observable", {
+  x <- fanout_with_failed_worker()
+  with_stub_llmr("llm_response_record", function(...) stop("worker record failed"), {
+    warnings <- character()
+    r <- withCallingHandlers(as_agent_run(x), warning = function(w) {
+      warnings <<- c(warnings, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    })
+    expect_length(warnings, 2L)
+    expect_true(all(grepl("worker record failed", warnings)))
+  })
+  ev <- as_tibble(r, "event")
+  expect_identical(ev$status, c("unrecorded", "error"))
+  expect_true(all(grepl("worker record failed", ev$note)))
+  expect_error(as_tibble(r, "call"), "no readable response record")
+  x$workers$response <- NULL
+  x$workers$finish_reason <- c("stop", NA_character_)
+  legacy <- as_agent_run(x)
+  expect_identical(as_tibble(legacy, "call")$success, c(TRUE, FALSE))
+  x$workers[c("finish_reason", "response_text", "sent_tokens", "rec_tokens")] <- NULL
+  expect_warning(incomplete <- as_agent_run(x), "no stored response")
+  expect_identical(as_tibble(incomplete, "event")$status[1], "unrecorded")
+})
+
+
+test_that("strong-call fallback failure preserves the synthesis and usage", {
+  plan <- '{"approaches":[{"title":"A","instructions":"a"},{"title":"B","instructions":"b"}]}'
+  n <- 0L
+  with_stub_llmr("call_llm_robust", function(...) {
+    n <<- n + 1L
+    fake_response(if (n == 1L) plan else "final answer")
+  }, {
+    with_stub_llmr("call_llm_par", function(experiments, ...) {
+      tibble::tibble(approach = experiments$approach, success = TRUE,
+                     response_text = "draft", finish_reason = "stop")
+    }, {
+      with_stub_llmr("llm_response_record", function(...) stop("record failed twice"), {
+        warnings <- character()
+        out <- withCallingHandlers(agent_fanout_synthesis("q", LLMR::llm_config("groq", "strong"),
+          LLMR::llm_config("groq", "cheap"), verify = FALSE, quiet = TRUE), warning = function(w) {
+            warnings <<- c(warnings, conditionMessage(w))
+            invokeRestart("muffleWarning")
+          })
+        expect_identical(n, 2L)
+        expect_identical(out$answer, "final answer")
+        expect_length(warnings, 2L)
+        expect_true(all(grepl("record failed twice", warnings)))
+      })
+    })
+  })
+  r <- as_agent_run(out)
+  events <- as_tibble(r, "event")
+  expect_identical(events$status[events$agent_id == "strong"], rep("unrecorded", 2L))
+  expect_identical(events$tokens_sent[events$agent_id == "strong"], rep(10L, 2L))
+  expect_error(as_tibble(r, "call"), "no readable response record")
+})

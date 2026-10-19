@@ -33,14 +33,15 @@ The inspector is a read-only view: it visualizes the substrate already captured 
 the run and derives nothing. It prefers \code{htmltools} when that package is
 installed; otherwise it builds the same content by hand with no optional
 dependencies. If no HTML page can be produced at all, it writes a structured
-text summary so the call still yields a file.
+text summary so the call still yields a file. A level that cannot be read
+is shown with the reason in place of its table, and the header marks
+figures that are unavailable or that include only reported token usage.
 }
 \examples{
-\dontrun{
-a <- agent("Ada", LLMR::llm_config("groq", "openai/gpt-oss-20b"))
-a$chat("Tell me something true.")
-view_run(a)
-}
+a <- agent("Ada", LLMR::llm_config("groq", "openai/gpt-oss-20b"), quiet = TRUE)
+page <- view_run(a, output = tempfile(fileext = ".html"), open = FALSE)
+page
+unlink(page)
 }
 \seealso{
 \code{\link[=as_agent_run]{as_agent_run()}}, \code{\link[=agent_manifest]{agent_manifest()}}, \code{\link[=report]{report()}}

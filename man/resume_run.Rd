@@ -22,14 +22,15 @@ resume_run(checkpoint, ...)
 }
 \value{
 An object of class \code{agent_resume_result} with \code{text} (the final
-reply), \code{agent} (the rebuilt agent, or \code{NULL}), and \code{checkpoint} (the
-checkpoint that was resumed).
+reply), \code{agent} (the rebuilt agent, or \code{NULL} when the checkpoint carries
+no agent state), and \code{checkpoint} (the checkpoint that was resumed).
 }
 \description{
 Rebuilds the paused agent from the checkpoint, applies the recorded decision
 (approve / reject / edit), and continues the tool loop to completion. The
 resumed work keeps the original accounting, so the run reads as one
-continuous exchange.
+continuous exchange: model rounds charged before the pause, including their
+count of calls with unreported usage, are not charged again.
 }
 \seealso{
 \code{\link[=human_gate]{human_gate()}}, \code{\link[=approve_tool_call]{approve_tool_call()}}

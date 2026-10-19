@@ -5,8 +5,9 @@
 # state). LLMR defines the generics and an erroring default; here we register
 # the LLMRagent methods. The token and outcome figures are not recomputed by
 # hand: they are read back through LLMR::llm_usage() over the run's call-level
-# rows, so a run's diagnostics agree to the integer with everything else the
-# ecosystem reports for the same calls.
+# rows, so a run's diagnostics agree with everything else the ecosystem
+# reports for the same calls. A level that cannot be read yields NA figures
+# and a warning, never zeros.
 
 #' LLMR-family methods for LLMRagent run objects
 #'
@@ -41,66 +42,148 @@ LLMR::reset
 #' Machine-readable diagnostics for an agent run
 #'
 #' Returns the small set of health numbers behind an [agent_run]: call counts,
-#' token totals, tool and blocked-event counts, wall-clock duration, and the
+#' token totals, tool and blocked-event counts, summed call durations, and the
 #' study's `manifest_hash`. Token and outcome figures are read through
 #' [LLMR::llm_usage()] over the run's call-level rows, so they match the rest of
-#' the LLMR ecosystem to the integer.
+#' the LLMR ecosystem.
 #'
-#' @param x An object accepted by [as_agent_run()] (an [Agent], a conversation
-#'   or preset result, a pipeline, an experiment, or an `agent_run`).
+#' Token sums omit missing values, and `n_unknown_tokens` counts the successful
+#' calls that reported no total, so a sum of zero with a positive
+#' `n_unknown_tokens` does not mean that nothing was used. When a level of the
+#' run cannot be read, the figures that depend on it are `NA` and a warning
+#' names the level and the reason; the other figures are still computed. A run
+#' with no calls has zero counts and sums. `duration_s` adds the recorded call
+#' durations rather than measuring elapsed time, and is `NA` when calls exist
+#' but none recorded a duration. An agent's own accounting (`agent$usage()`)
+#' can include tool-loop rounds, compactions, and embedding operations that
+#' have no call row, so the two need not agree.
+#'
+#' @param x An `agent_run` or an [Agent]. Convert other results with
+#'   [as_agent_run()] first.
 #' @param ... Unused.
-#' @return A one-row tibble with `run_id`, `kind`, `n_calls`, `n_ok`,
-#'   `n_failed`, `ok_rate`, `n_truncated`, `n_filtered`, `tokens_sent`,
-#'   `tokens_received`, `tokens_total`, `reasoning_tokens`, `n_tool_calls`,
-#'   `n_blocked`, `duration_s`, and `manifest_hash`.
-#' @seealso [report()], [LLMR::llm_usage()], [agent_manifest()]
+#' @return A one-row tibble with the following columns.
+#'   \describe{
+#'     \item{`run_id`, `kind`}{Run identifier and kind.}
+#'     \item{`n_calls`, `n_ok`, `n_failed`, `ok_rate`}{Stored call counts and success rate.}
+#'     \item{`n_truncated`, `n_filtered`}{Counts of recorded finish reasons.}
+#'     \item{`tokens_sent`, `tokens_received`, `tokens_total`, `reasoning_tokens`}{Sums of reported counts.}
+#'     \item{`n_tool_calls`}{Rows in the tool view.}
+#'     \item{`n_blocked`}{Events with status `"blocked"` or `"stopped"`.}
+#'     \item{`duration_s`}{Sum of available call durations in seconds.}
+#'     \item{`manifest_hash`}{Study manifest hash, or `NA` when unavailable.}
+#'     \item{`n_unknown_tokens`}{Successful rows missing total-token usage,
+#'       excluding recorded batch follow-on rows.}
+#'   }
 #' @examples
+#' a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"), quiet = TRUE)
+#' diagnostics(a)   # no calls yet: zero counts and sums
+#'
 #' \dontrun{
-#' a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"))
 #' a$chat("Hello")
 #' diagnostics(a)
 #' }
+#' @seealso [report()], [LLMR::llm_usage()], [agent_manifest()]
 #' @exportS3Method LLMR::diagnostics agent_run
 diagnostics.agent_run <- function(x, ...) {
   run <- as_agent_run(x)
-
-  calls <- tryCatch(
-    tibble::as_tibble(as_tibble(run, level = "call")),
-    error = function(e) NULL)
-  u <- tryCatch(
-    if (!is.null(calls) && nrow(calls)) LLMR::llm_usage(calls) else .usage_zero(),
-    error = function(e) .usage_zero())
-
-  n_tool <- tryCatch(nrow(as_tibble(run, level = "tool")), error = function(e) 0L)
-
-  events <- tryCatch(as_tibble(run, level = "event"), error = function(e) NULL)
-  n_blocked <- if (!is.null(events) && "status" %in% names(events)) {
-    sum(events$status %in% c("blocked", "stopped"))
-  } else 0L
-
-  mh <- tryCatch(agent_manifest(run)$manifest_hash, error = function(e) NA_character_)
-
+  extracted <- .read_run_level(run, "call")
+  calls <- extracted$data
+  u <- .call_usage(extracted)
+  tools <- .read_run_level(run, "tool")
+  events <- .read_run_level(run, "event")
+  n_blocked <- NA_integer_
+  if (is.null(events$error)) {
+    if ("status" %in% names(events$data)) {
+      n_blocked <- sum(events$data$status %in% c("blocked", "stopped"))
+    } else if (!nrow(events$data)) {
+      n_blocked <- 0L
+    } else {
+      warning("The 'event' level could not be summarized. Missing status column.", call. = FALSE)
+    }
+  }
+  mh <- tryCatch(.agent_manifest(run, extracted)$manifest_hash,
+                 error = function(e) NA_character_)
+  # Stored response records use duration_s; llm_usage() reads duration.
+  # Sum the available response-record durations here.
+  duration <- tryCatch({
+    if (is.null(calls)) NA_real_ else if (!nrow(calls)) 0 else
+      if (!"duration_s" %in% names(calls) || all(is.na(calls$duration_s))) NA_real_ else
+        sum(calls$duration_s, na.rm = TRUE)
+  }, error = function(e) {
+    warning("The 'call' level durations could not be summarized. duration_s is NA. ",
+            conditionMessage(e), call. = FALSE)
+    NA_real_
+  })
   tibble::tibble(
-    run_id           = run$run_id,
-    kind             = run$kind,
-    n_calls          = u$n,
-    n_ok             = u$n_ok,
-    n_failed         = u$n_failed,
-    ok_rate          = u$ok_rate,
-    n_truncated      = u$n_truncated,
-    n_filtered       = u$n_filtered,
-    tokens_sent      = u$sent_tokens,
-    tokens_received  = u$rec_tokens,
-    tokens_total     = u$total_tokens,
-    reasoning_tokens = u$reasoning_tokens,
-    n_tool_calls     = as.integer(n_tool),
-    n_blocked        = as.integer(n_blocked),
-    # The call level names wall-clock `duration_s`; LLMR::llm_usage() reads a
-    # `duration` column, so sum our column directly rather than taking u$duration_s.
-    duration_s       = if (!is.null(calls) && "duration_s" %in% names(calls))
-                         sum(calls$duration_s, na.rm = TRUE) else NA_real_,
-    manifest_hash    = mh
-  )
+    run_id = run$run_id, kind = run$kind,
+    n_calls = u$n, n_ok = u$n_ok, n_failed = u$n_failed, ok_rate = u$ok_rate,
+    n_truncated = u$n_truncated, n_filtered = u$n_filtered,
+    tokens_sent = u$sent_tokens, tokens_received = u$rec_tokens,
+    tokens_total = u$total_tokens, reasoning_tokens = u$reasoning_tokens,
+    n_tool_calls = if (is.null(tools$error)) as.integer(nrow(tools$data)) else NA_integer_,
+    n_blocked = as.integer(n_blocked), duration_s = duration, manifest_hash = mh,
+    n_unknown_tokens = u$n_unknown_tokens)
+}
+
+# Keep extraction failures separate from valid empty views.
+.read_run_level <- function(run, level, warn = TRUE) {
+  tryCatch(list(data = tibble::as_tibble(as_tibble(run, level = level)), error = NULL),
+    error = function(e) {
+      msg <- sprintf("The '%s' level could not be read. Values that depend on it are NA. %s",
+                     level, conditionMessage(e))
+      if (warn) warning(msg, call. = FALSE)
+      list(data = NULL, error = msg)
+    })
+}
+
+.usage_na <- function(n = NA_integer_) {
+  tibble::tibble(
+    n = as.integer(n), n_ok = NA_integer_, n_failed = NA_integer_, ok_rate = NA_real_,
+    n_truncated = NA_integer_, n_filtered = NA_integer_, sent_tokens = NA_integer_,
+    rec_tokens = NA_integer_, total_tokens = NA_integer_, reasoning_tokens = NA_integer_,
+    cached_tokens = NA_integer_, n_unknown_tokens = NA_integer_, duration_s = NA_real_)
+}
+
+.unknown_tokens <- function(calls) {
+  n <- nrow(calls)
+  ok <- calls[["success"]] %||% rep(NA, n)
+  total <- calls[["total_tokens"]] %||% rep(NA_integer_, n)
+  batch_i <- calls[["rowpack_row"]] %||% rep(NA_integer_, n)
+  sum((ok %in% TRUE) & is.na(total) & !(!is.na(batch_i) & batch_i > 1L))
+}
+
+.call_usage <- function(extracted) {
+  if (!is.null(extracted$error)) return(.usage_na())
+  calls <- extracted$data
+  if (!nrow(calls)) return(.usage_zero())
+  tryCatch({
+    u <- LLMR::llm_usage(calls)
+    if (is.null(u[["n_unknown_tokens"]])) u$n_unknown_tokens <- .unknown_tokens(calls)
+    u
+  }, error = function(e) {
+    warning("Call usage could not be summarized. Usage statistics are NA. ",
+            conditionMessage(e), call. = FALSE)
+    .usage_na(nrow(calls))
+  })
+}
+
+# Methods text uses the same extraction outcome as the caller's statistics.
+.run_methods <- function(extracted, task = NULL) {
+  if (!is.null(extracted$error)) {
+    return(paste("Methods text is unavailable because the call records could not be read.",
+                 extracted$error))
+  }
+  calls <- extracted$data
+  class(calls) <- unique(c("llmr_experiment", class(calls)))
+  methods <- tryCatch(LLMR::report(calls, task = task), error = function(e) {
+    msg <- paste("Methods text could not be generated from the call records.", conditionMessage(e))
+    warning(msg, call. = FALSE)
+    msg
+  })
+  unknown <- .unknown_tokens(calls)
+  if (unknown > 0L) methods <- c(methods, sprintf(
+    "%d successful call record(s) lack total-token usage. The token sums include reported counts.", unknown))
+  methods
 }
 
 # A bare Agent dispatches here (its class is c("Agent", "R6"), not agent_run);
@@ -171,18 +254,26 @@ diagnostics.agent_experiment <- function(x, ...) {
 #' call-level rows, and a one-line limits note stating that the results are
 #' model-conditioned and are not estimates of a human population.
 #'
-#' @param x An object accepted by [as_agent_run()].
+#' When some successful calls reported no total-token usage, the report says
+#' so beside the token sums. When the call records cannot be read, or the
+#' methods paragraph or the claim-language check cannot be produced, the
+#' report warns and says in its text what is missing.
+#'
+#' @param x An `agent_run` or an [Agent]. Convert other results with
+#'   [as_agent_run()] first.
 #' @param ... May include `task`, a one-clause description of what the model was
 #'   asked to do (spliced into the methods paragraph).
 #' @return An object of class `agent_report`: a character vector with a print
 #'   method that `cat()`s the lines.
-#' @seealso [diagnostics()], [LLMR::report()]
 #' @examples
+#' a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"), quiet = TRUE)
+#' report(a, task = "to answer a factual question")
+#'
 #' \dontrun{
-#' a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"))
 #' a$chat("Hello")
 #' report(a, task = "to answer a factual question")
 #' }
+#' @seealso [diagnostics()], [agent_manifest()], [LLMR::report()]
 #' @exportS3Method LLMR::report agent_run
 report.agent_run <- function(x, ...) {
   run <- as_agent_run(x)
@@ -199,21 +290,13 @@ report.agent_run <- function(x, ...) {
     paste0("Workflow: ", .workflow_summary(run), ".")
   )
 
-  calls <- tryCatch(
-    tibble::as_tibble(as_tibble(run, level = "call")),
-    error = function(e) NULL)
-  methods <- if (!is.null(calls)) {
-    class(calls) <- unique(c("llmr_experiment", class(calls)))
-    tryCatch(LLMR::report(calls, task = task),
-             error = function(e) "Methods paragraph unavailable (no call records).")
-  } else {
-    "Methods paragraph unavailable (no call records)."
-  }
-
-  # Scope any population-estimate phrasing in the drafted methods to the run's
-  # claim type, then append the limits note.
+  methods <- .run_methods(.read_run_level(run, "call"), task)
   methods <- tryCatch(llm_claim_lint(methods, run = run, action = "scope"),
-                      error = function(e) methods)
+    error = function(e) {
+      msg <- paste("The claim-language check could not be completed.", conditionMessage(e))
+      warning(msg, call. = FALSE)
+      c(methods, msg)
+    })
 
   body <- c(header, "", methods)
   note <- .claim_note()

@@ -87,30 +87,38 @@ agent_fanout_synthesis <- function(problem, strong_config, cheap_config,
   # already carries the cheap-model records).
   strong_calls <- list()
   record_strong <- function(resp, request, stage) {
-    # A call that happened is always recorded; when its request hash cannot be
-    # computed, it is recorded without one, with a warning.
+    # A call that happened is always recorded. When its request hash cannot be
+    # computed, it is recorded without one; when no record can be built at all,
+    # the reply and its usage are kept and the call is marked "unrecorded".
+    # Each fallback warns.
     rr <- tryCatch(LLMR::llm_response_record(resp, request = request,
-                                             config = strong_config),
-                   error = function(e) {
-                     warning(sprintf(
-                       "The %s call's request hash could not be computed (%s); it is recorded without one.",
-                       stage, conditionMessage(e)), call. = FALSE)
-                     LLMR::llm_response_record(resp)
-                   })
-    if (!is.null(rr)) {
-      rr$stage <- stage
-      # Keep the request messages and reply metadata alongside the record so the
-      # run object can emit a TRUE LLMR audit log (request body included), not
-      # just a flat record. (Mirrors what Agent$account() stashes per call.)
-      strong_calls[[length(strong_calls) + 1L]] <<- list(
-        record = rr, stage = stage, request = request,
-        provider = strong_config$provider %||% NA_character_,
-        model = strong_config$model %||% NA_character_,
-        model_version = if (inherits(resp, "llmr_response")) resp$model_version else NA_character_,
-        finish_reason = if (inherits(resp, "llmr_response")) resp$finish_reason else NA_character_,
-        text = if (inherits(resp, "llmr_response")) resp$text else NA_character_,
-        usage = if (inherits(resp, "llmr_response")) resp$usage else NULL)
+                                             config = strong_config), error = identity)
+    record_error <- NULL
+    if (inherits(rr, "error")) {
+      first_error <- conditionMessage(rr)
+      rr <- tryCatch(LLMR::llm_response_record(resp), error = identity)
+      if (!inherits(rr, "error") && .usable_record(rr)) warning(sprintf(
+        "The %s call's request hash could not be computed (%s); it is recorded without one.",
+        stage, first_error), call. = FALSE)
     }
+    if (!.usable_record(rr)) {
+      record_error <- if (inherits(rr, "error")) conditionMessage(rr) else
+        "The response record is not a usable call row."
+      rr <- NULL
+      warning("The reply was received, but its call record could not be constructed. ",
+              record_error, call. = FALSE)
+    } else rr$stage <- stage
+    # Keep the request messages and reply metadata alongside the record so the
+    # run object can emit a true LLMR audit log (request body included), not
+    # just a flat record. (Mirrors what Agent$account() stashes per call.)
+    strong_calls[[length(strong_calls) + 1L]] <<- list(
+      record = rr, record_error = record_error, stage = stage, request = request,
+      provider = strong_config$provider %||% NA_character_,
+      model = strong_config$model %||% NA_character_,
+      model_version = if (inherits(resp, "llmr_response")) resp$model_version else NA_character_,
+      finish_reason = if (inherits(resp, "llmr_response")) resp$finish_reason else NA_character_,
+      text = if (inherits(resp, "llmr_response")) resp$text else NA_character_,
+      usage = if (inherits(resp, "llmr_response")) resp$usage else NULL)
     resp
   }
 
@@ -235,13 +243,17 @@ as_agent_run.agent_fanout_result <- function(x, ...) {
     rr <- sc$record
     list(span_id = .llmragent_id("span"), parent_id = NA_character_,
          run_id = prov$run_id, agent_id = "strong",
-         event_type = "call", status = if (isTRUE(rr$success[[1]])) "ok" else "error",
+         event_type = "call", status = if (!.usable_record(rr)) "unrecorded" else
+           if (isTRUE(rr$success[[1]])) "ok" else "error",
          started_at = Sys.time(), ended_at = Sys.time(),
-         duration_s = rr$duration_s[[1]] %||% NA_real_,
-         tokens_sent = rr$sent_tokens[[1]], tokens_received = rr$rec_tokens[[1]],
-         tool = NA_character_, request_hash = rr$request_hash[[1]],
-         response_id = rr$response_id[[1]], note = sc$stage %||% NA_character_,
-         meta = list(record = rr[, setdiff(names(rr), "stage"), drop = FALSE],
+         duration_s = rr[["duration_s"]][[1]] %||% NA_real_,
+         tokens_sent = rr[["sent_tokens"]][[1]] %||% .usage_count(sc$usage$sent),
+         tokens_received = rr[["rec_tokens"]][[1]] %||% .usage_count(sc$usage$rec),
+         tool = NA_character_, request_hash = rr[["request_hash"]][[1]] %||% NA_character_,
+         response_id = rr[["response_id"]][[1]] %||% NA_character_,
+         note = sc$record_error %||% sc$stage %||% NA_character_,
+         meta = list(record = if (.usable_record(rr)) rr[, setdiff(names(rr), "stage"), drop = FALSE] else NULL,
+                     record_error = sc$record_error,
                      stage = sc$stage, request = sc$request,
                      provider = sc$provider, model = sc$model,
                      model_version = sc$model_version, finish_reason = sc$finish_reason,
@@ -252,32 +264,58 @@ as_agent_run.agent_fanout_result <- function(x, ...) {
   # record (with its request hash when the request is known), so the run's call
   # level and diagnostics count it.
   w <- x$workers
-  if (is.data.frame(w) && "response" %in% names(w)) {
+  if (is.data.frame(w)) {
     for (i in seq_len(nrow(w))) {
-      resp <- w$response[[i]]
-      rr <- if (inherits(resp, "llmr_response")) {
-        tryCatch(LLMR::llm_response_record(resp), error = function(e) NULL)
-      } else {
-        msg <- if ("error_message" %in% names(w) && !is.na(w$error_message[i]))
-          w$error_message[i] else "the worker call failed"
-        req <- if ("messages" %in% names(w)) w$messages[[i]] else NULL
-        cfg <- if ("config" %in% names(w)) w$config[[i]] else NULL
-        tryCatch(LLMR::llm_response_record(simpleError(msg), request = req, config = cfg),
-                 error = function(e) LLMR::llm_response_record(simpleError(msg)))
+      resp <- if ("response" %in% names(w)) w$response[[i]] else NULL
+      rr <- tryCatch({
+        if (inherits(resp, "llmr_response")) {
+          LLMR::llm_response_record(resp)
+        } else if (!"response" %in% names(w) &&
+                   "success" %in% names(w) &&
+                   any(c("response_text", "sent_tokens", "rec_tokens", "total_tokens", "finish_reason") %in% names(w))) {
+          cols <- intersect(c("response_text", "provider", "model", "model_version",
+            "finish_reason", "sent_tokens", "rec_tokens", "total_tokens", "success",
+            "error_message", "duration_s", "request_hash", "response_id", "reasoning_tokens",
+            "cached_tokens", "rowpack_row"), names(w))
+          row <- w[i, cols, drop = FALSE]
+          if (!"finish_reason" %in% names(row)) row$finish_reason <- NA_character_
+          row
+        } else if (isTRUE(w$success[i])) {
+          stop("The worker has no stored response or usable diagnostic columns.")
+        } else {
+          msg <- if ("error_message" %in% names(w) && !is.na(w$error_message[i]))
+            w$error_message[i] else "the worker call failed"
+          req <- if ("messages" %in% names(w)) w$messages[[i]] else NULL
+          cfg <- if ("config" %in% names(w)) w$config[[i]] else NULL
+          tryCatch(LLMR::llm_response_record(simpleError(msg), request = req, config = cfg),
+                   error = function(e) LLMR::llm_response_record(simpleError(msg)))
+        }
+      }, error = identity)
+      record_error <- NULL
+      if (!.usable_record(rr)) {
+        record_error <- if (inherits(rr, "error")) conditionMessage(rr) else
+          "The response record is not a usable call row."
+        rr <- NULL
+        warning("The worker call record could not be constructed. ", record_error, call. = FALSE)
       }
       spans[[length(spans) + 1L]] <- list(
         span_id = .llmragent_id("span"), parent_id = NA_character_,
         run_id = prov$run_id, agent_id = "worker",
-        event_type = "call", status = if (isTRUE(w$success[i])) "ok" else "error",
+        event_type = "call", status = if (isTRUE(w$success[i])) {
+          if (is.null(record_error)) "ok" else "unrecorded"
+        } else "error",
         started_at = Sys.time(), ended_at = Sys.time(),
-        duration_s = if ("duration" %in% names(w)) w$duration[i] else NA_real_,
-        tokens_sent = if ("sent_tokens" %in% names(w)) w$sent_tokens[i] else NA_integer_,
-        tokens_received = if ("rec_tokens" %in% names(w)) w$rec_tokens[i] else NA_integer_,
+        duration_s = if ("duration" %in% names(w)) w$duration[i] else resp$duration_s %||% NA_real_,
+        tokens_sent = if ("sent_tokens" %in% names(w)) w$sent_tokens[i] else .usage_count(resp$usage$sent),
+        tokens_received = if ("rec_tokens" %in% names(w)) w$rec_tokens[i] else .usage_count(resp$usage$rec),
         tool = NA_character_,
-        request_hash = if (!is.null(rr)) rr$request_hash[[1]] else NA_character_,
-        response_id = if (!is.null(rr)) rr$response_id[[1]] else NA_character_,
-        note = paste0("worker:", w$approach[i]),
-        meta = list(record = rr))
+        request_hash = if (!is.null(rr)) rr[["request_hash"]][[1]] %||% NA_character_ else NA_character_,
+        response_id = if (!is.null(rr)) rr[["response_id"]][[1]] %||% NA_character_ else NA_character_,
+        note = record_error %||% paste0("worker:", w$approach[i]),
+        meta = list(record = rr, record_error = record_error,
+                    text = if (inherits(resp, "llmr_response")) resp$text else
+                      if ("response_text" %in% names(w)) w$response_text[i] else NULL,
+                    usage = if (inherits(resp, "llmr_response")) resp$usage else NULL))
     }
   }
   prov$spans <- spans

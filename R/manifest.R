@@ -65,10 +65,25 @@ hash_tool_spec <- function(tool) {
 #' component changes. It does not hash transcripts, replies, or unrecorded
 #' ambient state such as values captured by a tool closure.
 #'
+#' The manifest also reports, outside the hash, how many calls the run made
+#' and the tokens they reported. `n_unknown_tokens` counts the successful
+#' calls that reported no total. The model list is read from the call records
+#' when there are any (`models_basis = "calls"`) and from the participating
+#' agents otherwise (`"participants"`); since the model list is hashed, the
+#' two bases can give different hashes for otherwise identical runs. When the
+#' call records cannot be read, the manifest warns, reports the call count and
+#' token sums as `NA`, and takes the model list from the participants. An
+#' experiment's design records the number of cells that contributed events
+#' (`n_converted`); that count describes the outcome rather than the
+#' specification and is not hashed.
+#'
 #' @param run An object accepted by [as_agent_run()] (a chat agent, a
 #'   conversation, a preset, a pipeline, an experiment, an
 #'   `agent_fanout_result`, or an `agent_run`).
-#' @return An object of class `agent_manifest` (a list); see Details. Print shows
+#' @return An object of class `agent_manifest`: a list with `manifest_hash`,
+#'   `kind`, `run_id`, `design`, `personas`, `tools`, `workflow`, `models`,
+#'   `params`, `pkg_versions`, `created_at`, `n_calls`, `tokens_sent`,
+#'   `tokens_received`, `models_basis`, and `n_unknown_tokens`. Print shows
 #'   the short hash, kind, models, and headline counts.
 #' @seealso [hash_persona()], [hash_tool_spec()], [archive_agent_study()],
 #'   [LLMR::llm_hash()]
@@ -76,7 +91,15 @@ hash_tool_spec <- function(tool) {
 agent_manifest <- function(run) {
   r <- as_agent_run(run)
 
-  calls <- tryCatch(tibble::as_tibble(as_tibble(r, "call")), error = function(e) NULL)
+  extracted <- .read_run_level(r, "call", warn = FALSE)
+  if (!is.null(extracted$error)) warning(
+    "Call records could not be read. Call counts and token summaries are NA; the model list uses participants. ",
+    extracted$error, call. = FALSE)
+  .agent_manifest(r, extracted)
+}
+
+.agent_manifest <- function(r, extracted) {
+  calls <- extracted$data
   models <- if (!is.null(calls) && nrow(calls)) {
     cols <- intersect(c("provider", "model", "model_version"), names(calls))
     tibble::as_tibble(unique(as.data.frame(calls[, cols, drop = FALSE], stringsAsFactors = FALSE)))
@@ -116,9 +139,11 @@ agent_manifest <- function(run) {
     params        = params_tbl,
     pkg_versions  = r$pkg_versions,
     created_at    = r$created_at,
-    n_calls       = if (!is.null(calls)) nrow(calls) else 0L,
+    n_calls       = if (!is.null(calls)) nrow(calls) else NA_integer_,
     tokens_sent   = if (!is.null(calls) && "sent_tokens" %in% names(calls)) sum(calls$sent_tokens, na.rm = TRUE) else NA_integer_,
-    tokens_received = if (!is.null(calls) && "rec_tokens" %in% names(calls)) sum(calls$rec_tokens, na.rm = TRUE) else NA_integer_
+    tokens_received = if (!is.null(calls) && "rec_tokens" %in% names(calls)) sum(calls$rec_tokens, na.rm = TRUE) else NA_integer_,
+    models_basis = if (!is.null(calls) && nrow(calls)) "calls" else "participants",
+    n_unknown_tokens = if (!is.null(calls)) .unknown_tokens(calls) else NA_integer_
   )
   structure(out, class = "agent_manifest")
 }
@@ -182,13 +207,19 @@ agent_manifest <- function(run) {
   do.call(rbind, rows)
 }
 
+#' @rdname agent_manifest
+#' @param x An `agent_manifest`.
+#' @param ... Unused.
 #' @export
 print.agent_manifest <- function(x, ...) {
-  cat(sprintf("<agent_manifest %s | %s | %d call(s)>\n",
-              substr(x$manifest_hash, 1L, 12L), x$kind %||% "?", x$n_calls %||% 0L))
+  cat(sprintf("<agent_manifest %s | %s | %s call(s)>\n",
+              substr(x$manifest_hash, 1L, 12L), x$kind %||% "?",
+              format(x$n_calls %||% 0L)))
   if (nrow(x$models)) {
     mv <- if ("model_version" %in% names(x$models)) x$models$model_version else x$models$model
-    cat("  models:  ", paste(unique(stats::na.omit(mv)), collapse = ", "), "\n", sep = "")
+    cat("  models:  ", paste(unique(stats::na.omit(mv)), collapse = ", "),
+        if (!is.null(x$models_basis)) paste0(" (from ", x$models_basis, ")"),
+        "\n", sep = "")
   }
   cat(sprintf("  personas: %d | tools: %d | params: %d\n",
               nrow(x$personas), nrow(x$tools), nrow(x$params)))

@@ -33,15 +33,22 @@ recorded-use gate: the agent stops before the next call once recorded usage
 reaches the limit, but one response can take the total past it because the
 response's token count is not known in advance.
 }
+\details{
+A call whose usage the provider did not report adds nothing to the recorded
+total. Once an agent with a finite \code{max_tokens} has made such a call, each
+check warns that the limit is compared with recorded tokens only.
+\code{\link[=save_agent]{save_agent()}} keeps the counters, so a budget stays binding across
+sessions; the elapsed-time limit restarts when the agent is loaded.
+}
 \examples{
 b <- budget(max_calls = 10, max_tokens = 50000)
 
-\dontrun{
+# A budget with no calls left refuses before any request is sent.
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b")
-frugal <- agent("Frugal", cfg, budget = budget(max_calls = 2))
-frugal$chat("one")
-frugal$chat("two")
-tryCatch(frugal$chat("three"),
+frugal <- agent("Frugal", cfg, budget = budget(max_calls = 0), quiet = TRUE)
+tryCatch(frugal$chat("one"),
          llmragent_budget_error = function(e) "refused before spending")
 }
+\seealso{
+\code{\link[=agent]{agent()}}, \code{\link[=save_agent]{save_agent()}}, \code{\link[=load_agent]{load_agent()}}
 }

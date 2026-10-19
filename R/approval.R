@@ -6,7 +6,8 @@
 # shape). When the model calls a gated tool, the loop suspends by raising a
 # resumable condition carrying a serializable checkpoint; resume_run() rebuilds
 # the agent, splices the approved (or denied/edited) result, and continues.
-# This is the R-native equivalent of PydanticAI-style deferred tools.
+# The checkpoint carries the loop's accounting, so the resumed exchange is
+# charged once.
 
 #' Run a native, pausable tool loop
 #'
@@ -48,7 +49,8 @@
   agg <- agg %||% list(
     model_calls = 0L, sent = 0L, rec = 0L, tool_calls = 0L, saw = FALSE,
     accounted_model_calls = 0L, accounted_sent = 0L, accounted_rec = 0L,
-    accounted_tool_calls = 0L)
+    accounted_tool_calls = 0L, n_unknown_usage = 0L, accounted_unknown_usage = 0L)
+  if (is.null(agg$n_unknown_usage)) agg$n_unknown_usage <- .loop_unknown_usage(agg)
   if (inherits(agent, "Agent")) {
     agg <- agent$.__enclos_env__$private$account_pending_loop(agg)
   }
@@ -61,6 +63,8 @@
                                   wait_seconds = wait_seconds, verbose = FALSE)
     agg$model_calls <- agg$model_calls + 1L
     u <- LLMR::tokens(resp)
+    agg$n_unknown_usage <- agg$n_unknown_usage +
+      as.integer(is.na(.usage_count(u$sent)) || is.na(.usage_count(u$rec)))
     if (length(u$sent) == 1L && !is.na(u$sent)) { agg$sent <- agg$sent + as.integer(u$sent); agg$saw <- TRUE }
     if (length(u$rec) == 1L && !is.na(u$rec)) { agg$rec <- agg$rec + as.integer(u$rec); agg$saw <- TRUE }
     if (inherits(agent, "Agent")) {
@@ -79,7 +83,9 @@
         accounted_model_calls = agg$accounted_model_calls %||% 0L,
         accounted_sent = agg$accounted_sent %||% 0L,
         accounted_rec = agg$accounted_rec %||% 0L,
-        accounted_tool_calls = agg$accounted_tool_calls %||% 0L)
+        accounted_tool_calls = agg$accounted_tool_calls %||% 0L,
+        n_unknown_usage = agg$n_unknown_usage,
+        accounted_unknown_usage = agg$accounted_unknown_usage %||% 0L)
       return(resp)
     }
 
@@ -151,7 +157,9 @@
     accounted_model_calls = agg$accounted_model_calls %||% 0L,
     accounted_sent = agg$accounted_sent %||% 0L,
     accounted_rec = agg$accounted_rec %||% 0L,
-    accounted_tool_calls = agg$accounted_tool_calls %||% 0L)
+    accounted_tool_calls = agg$accounted_tool_calls %||% 0L,
+        n_unknown_usage = agg$n_unknown_usage,
+        accounted_unknown_usage = agg$accounted_unknown_usage %||% 0L)
   resp
 }
 
@@ -215,7 +223,7 @@
   agent_state <- if (inherits(agent, "Agent")) {
     list(name = agent$name, persona = agent$persona, config = agent$config,
          memory = agent$memory$state(), agent_id = agent$id(),
-         usage = as.list(agent$usage()[1, c("calls","tokens_sent","tokens_received","tool_calls")]),
+         usage = as.list(agent$usage()[1, c("calls","tokens_sent","tokens_received","tool_calls","n_unknown_usage")]),
          budget = agent$budget, spans = agent$internal_spans(),
          # Guardrails travel with the checkpoint (closures serialize through
          # RDS, like the tools); dropping them would let a resume silently
@@ -274,15 +282,18 @@ approve_tool_call <- function(checkpoint, decision = c("approve", "reject", "edi
 #'
 #' `human_gate()` is a marker used in two places. As a wrapper, `human_gate(tool)`
 #' returns the tool with its approval requirement set, equivalent to building it
-#' with `agent_tool(..., requires_approval = TRUE)`. As a workflow node (Stage 4),
-#' it pauses a run for sign-off. In an agent's tool list, any approval-required
-#' tool makes the agent run a pausable tool loop.
+#' with `agent_tool(..., requires_approval = TRUE)`. As a workflow node, it
+#' pauses a run for sign-off until [resume_workflow()] is called. In an agent's
+#' tool list, any approval-required tool makes the agent run a pausable tool
+#' loop.
 #'
 #' @param x A tool (an `llmr_tool` / [agent_tool()]) to gate, or a name (label)
 #'   when used as a standalone gate marker.
 #' @param prompt Optional text shown to the human reviewer.
-#' @return The gated tool (when `x` is a tool), or a gate marker object.
-#' @seealso [approve_tool_call()], [resume_run()], [agent_tool()]
+#' @return The gated tool (when `x` is a tool), or a gate marker object of
+#'   class `llmragent_human_gate`.
+#' @seealso [approve_tool_call()], [resume_run()], [agent_tool()],
+#'   [run_workflow()]
 #' @export
 human_gate <- function(x, prompt = NULL) {
   if (inherits(x, "llmr_tool")) {
@@ -305,14 +316,15 @@ human_gate <- function(x, prompt = NULL) {
 #' Rebuilds the paused agent from the checkpoint, applies the recorded decision
 #' (approve / reject / edit), and continues the tool loop to completion. The
 #' resumed work keeps the original accounting, so the run reads as one
-#' continuous exchange.
+#' continuous exchange: model rounds charged before the pause, including their
+#' count of calls with unreported usage, are not charged again.
 #'
 #' @param checkpoint A `llmragent_checkpoint` with a decision recorded by
 #'   [approve_tool_call()].
 #' @param ... Reserved.
 #' @return An object of class `agent_resume_result` with `text` (the final
-#'   reply), `agent` (the rebuilt agent, or `NULL`), and `checkpoint` (the
-#'   checkpoint that was resumed).
+#'   reply), `agent` (the rebuilt agent, or `NULL` when the checkpoint carries
+#'   no agent state), and `checkpoint` (the checkpoint that was resumed).
 #' @seealso [human_gate()], [approve_tool_call()]
 #' @export
 resume_run <- function(checkpoint, ...) {

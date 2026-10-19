@@ -15,10 +15,13 @@ save_agent(x, path)
 \code{path}, invisibly.
 }
 \description{
-Writes the agent's name, persona, config, memory contents, guardrails, and
-trace to an RDS file. Tools are functions and are not serialized; re-attach
-them at load time via \code{load_agent(tools = ...)}. Guardrails are serialized
-(their check functions travel through RDS) and restored automatically.
+Writes the agent's name, persona, config, memory contents, budget,
+guardrails, trace, and accounting to an RDS file. Tools are functions and
+are not serialized; re-attach them at load time via
+\code{load_agent(tools = ...)}. Guardrails are serialized (their check functions
+travel through RDS) and restored automatically. The accounting includes the
+count of calls whose usage was not reported (\code{n_unknown_usage}), so a
+reloaded agent's \code{\link[=budget]{budget()}} warnings stay accurate.
 }
 \details{
 A config carrying a literal API key (one passed as a string rather than
@@ -26,15 +29,19 @@ the usual environment-variable reference) is refused: saving it would
 write the key to disk. Rebuild the config from an environment variable.
 }
 \examples{
-\dontrun{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b")
-a <- agent("Ada", cfg, persona = "Terse.")
-a$chat("Remember this: the project deadline is March 3.")
-save_agent(a, "ada.rds")
+a <- agent("Ada", cfg, persona = "Terse.", quiet = TRUE)
+a$memory$add("user", "Remember this: the project deadline is March 3.")
+path <- tempfile(fileext = ".rds")
+save_agent(a, path)
 
+ada <- load_agent(path)
+ada$transcript()   # the memory came along
+unlink(path)
+
+\dontrun{
 # a later session, any machine with GROQ_API_KEY set:
-ada <- load_agent("ada.rds")
-ada$chat("When is the deadline?")   # the memory came along
+ada$chat("When is the deadline?")
 }
 }
 \seealso{

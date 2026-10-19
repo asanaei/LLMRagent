@@ -61,13 +61,25 @@ NULL
 #' completed conversation, preset, or pipeline records its agents' tools,
 #' generation parameters, and memory as they were when it closed, so reusing or
 #' changing those agents later does not change its manifest or state view.
+#' Workflow runs are not converted; they keep their own checkpoint and replay
+#' record (see [run_workflow()]).
+#'
+#' The call level holds the stored [LLMR::llm_response_record()] rows. A tool
+#' exchange takes several model rounds but stores one record, for its final
+#' response, and memory compactions and embedding operations appear only as
+#' events. Records written under different LLMR versions are bound by column
+#' name; a column absent from some records is filled with missing values of
+#' the type the other records use. A call event whose record could not be
+#' built (status `"unrecorded"`) makes the call level an error that names the
+#' event, while the other levels remain available.
 #'
 #' @param x An [Agent]; a conversation, debate, focus group, interview, or
 #'   deliberation; an `agent_pipeline_run`; an `agent_fanout_result`; an
-#'   `agent_experiment`;
-#'   or a [call_llm_par()]-style result frame.
-#' @param ... Unused.
-#' @return An object of class `agent_run`.
+#'   `agent_experiment`; or an `agent_run`.
+#' @param ... Unused. `tibble::as_tibble()` also accepts the level name as
+#'   its second, unnamed argument.
+#' @return An object of class `agent_run`; `tibble::as_tibble()` returns the
+#'   requested level as a tibble.
 #' @aliases agent_run
 #' @seealso [agent_manifest()], [archive_agent_study()], [diagnostics()],
 #'   [report()]
@@ -82,8 +94,8 @@ as_agent_run.default <- function(x, ...) {
   cls <- paste(class(x), collapse = ", ")
   stop(sprintf(paste0(
     "Cannot convert an object of class <%s> to an agent_run. Pass an Agent, a ",
-    "conversation/preset result, a pipeline/experiment/fanout result, or ",
-    "a call_llm_par() frame."), cls), call. = FALSE)
+    "conversation/preset result, or a pipeline/experiment/fanout result."),
+    cls), call. = FALSE)
 }
 
 #' @export
@@ -121,8 +133,8 @@ as_agent_run.Agent <- function(x, ...) {
 
 #' @rdname as_agent_run
 #' @param level The grain to return: `"utterance"` (analysis grain),
-#'   `"event"` (every span), `"call"` (one canonical [LLMR::llm_response_record()]
-#'   row per model call), `"tool"` (tool invocations with arg/result hashes), or
+#'   `"event"` (every span), `"call"` (stored [LLMR::llm_response_record()]
+#'   rows), `"tool"` (tool invocations with arg/result hashes), or
 #'   `"state"` (each participating agent's memory at run end).
 #' @exportS3Method tibble::as_tibble agent_run
 as_tibble.agent_run <- function(x, ..., level = c("utterance","event","call","tool","state")) {
@@ -181,8 +193,14 @@ as_tibble.agent_run <- function(x, ..., level = c("utterance","event","call","to
 .run_calls <- function(x) {
   recs <- list()
   for (s in x$spans) {
-    if ((s$event_type %||% "") %in% c("call") && is.data.frame(s$meta$record)) {
+    if (identical(s$event_type, "call")) {
       rr <- s$meta$record
+      if (!.usable_record(rr)) {
+        stop(sprintf("Call span '%s' has no readable response record.%s",
+                     s$span_id %||% "unknown",
+                     if (!is.null(s$meta$record_error)) paste0(" ", s$meta$record_error) else ""),
+             call. = FALSE)
+      }
       rr$run_id <- s$run_id %||% x$run_id
       rr$span_id <- s$span_id
       rr$agent_id <- s$agent_id
@@ -194,7 +212,46 @@ as_tibble.agent_run <- function(x, ..., level = c("utterance","event","call","to
     base$run_id <- character(0); base$span_id <- character(0); base$agent_id <- character(0)
     return(base)
   }
-  do.call(rbind, recs)
+  .bind_records(recs)
+}
+
+# Bind one-row records by column name. Records written by different LLMR
+# versions can lack a column; it is filled with a missing value of the type the
+# other records use, and only columns present in some record enter the result.
+# Columns whose types cannot be combined (character with integer, say) are an
+# error rather than a silent coercion.
+.bind_records <- function(recs) {
+  cols <- unique(unlist(lapply(recs, names), use.names = FALSE))
+  family <- function(v) {
+    if (is.logical(v) && all(is.na(v))) return(NA_character_)
+    if (inherits(v, c("POSIXt", "Date", "difftime"))) return(class(v)[1])
+    if (is.factor(v) || is.character(v)) return("character")
+    if (is.logical(v) || is.integer(v) || is.double(v)) return("numeric")
+    class(v)[1]
+  }
+  for (cn in cols) {
+    present <- Filter(Negate(is.null), lapply(recs, function(r) r[[cn]]))
+    fams <- unique(stats::na.omit(vapply(present, family, character(1))))
+    if (length(fams) > 1L) {
+      stop(sprintf("Call records store column '%s' with incompatible types (%s).",
+                   cn, paste(fams, collapse = ", ")), call. = FALSE)
+    }
+    typed <- Filter(function(v) !is.na(family(v)), present)
+    proto <- if (length(typed)) typed[[1]] else present[[1]]
+    for (i in seq_along(recs)) {
+      if (is.null(recs[[i]][[cn]])) {
+        recs[[i]][[cn]] <- proto[NA_integer_][rep(1L, nrow(recs[[i]]))]
+      }
+    }
+  }
+  out <- do.call(rbind, lapply(recs, function(r) r[, cols, drop = FALSE]))
+  rownames(out) <- NULL
+  tibble::as_tibble(out)
+}
+
+.usable_record <- function(x) {
+  is.data.frame(x) && nrow(x) == 1L && "success" %in% names(x) &&
+    is.logical(x$success)
 }
 
 # tool level: tool spans expanded with governance metadata.

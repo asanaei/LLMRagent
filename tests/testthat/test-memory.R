@@ -155,6 +155,7 @@ test_that("retrieval embeddings pass the agent budget and land in the trace", {
                  memory = m, caller = scripted_caller(list("ok")), quiet = TRUE)
   with_stub_llmr("get_batched_embeddings", fake_embed, a$chat("query"))
 
+  expect_identical(a$usage()$n_unknown_usage, 2L)
   expect_identical(n_embed_ops, 2L)             # backlog batch + query
   expect_identical(a$usage()$calls, 3L)         # 2 embed operations + 1 chat
   expect_identical(sum(a$trace()$event == "embed"), 2L)

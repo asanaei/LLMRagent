@@ -91,8 +91,10 @@ test_that("aggregate tool-loop spend is accounted, not just the final call", {
     round = c(1L, 2L), name = c("a", "b"),
     arguments = c("{}", "{}"), result = c("1", "2"))
   a <- fake_agent("T", list(r))
-  a$chat("go")
+  rlang::reset_warning_verbosity("llmragent-loop-unknown-usage")
+  expect_warning(a$chat("go"), "unknown-usage count")
   u <- a$usage()
+  expect_identical(u$n_unknown_usage, NA_integer_)
   expect_equal(u$calls, 3L)          # every internal round, not 1
   expect_equal(u$tokens_sent, 60L)   # loop aggregate, not the final call's 5
   expect_equal(u$tool_calls, 2L)

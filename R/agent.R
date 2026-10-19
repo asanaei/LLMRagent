@@ -12,6 +12,12 @@
 #' reaches the limit, but one response can take the total past it because the
 #' response's token count is not known in advance.
 #'
+#' A call whose usage the provider did not report adds nothing to the recorded
+#' total. Once an agent with a finite `max_tokens` has made such a call, each
+#' check warns that the limit is compared with recorded tokens only.
+#' [save_agent()] keeps the counters, so a budget stays binding across
+#' sessions; the elapsed-time limit restarts when the agent is loaded.
+#'
 #' @param max_calls Maximum number of model calls, counting chat exchanges,
 #'   memory compactions, and retrieval-memory embedding operations.
 #' @param max_tokens Stop before the next model call once recorded sent and
@@ -22,14 +28,12 @@
 #' @examples
 #' b <- budget(max_calls = 10, max_tokens = 50000)
 #'
-#' \dontrun{
+#' # A budget with no calls left refuses before any request is sent.
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b")
-#' frugal <- agent("Frugal", cfg, budget = budget(max_calls = 2))
-#' frugal$chat("one")
-#' frugal$chat("two")
-#' tryCatch(frugal$chat("three"),
+#' frugal <- agent("Frugal", cfg, budget = budget(max_calls = 0), quiet = TRUE)
+#' tryCatch(frugal$chat("one"),
 #'          llmragent_budget_error = function(e) "refused before spending")
-#' }
+#' @seealso [agent()], [save_agent()], [load_agent()]
 #' @export
 budget <- function(max_calls = Inf, max_tokens = Inf,
                    max_tool_calls = Inf, max_seconds = Inf) {
@@ -139,6 +143,7 @@ Agent <- R6::R6Class(
           t0 <- Sys.time()
           out <- LLMR::get_batched_embeddings(texts, embed_config)
           private$n_calls <- private$n_calls + 1L
+          private$n_unknown_usage <- private$n_unknown_usage + 1L
           private$span_add(
             "embed",
             duration = as.numeric(difftime(Sys.time(), t0, units = "secs")),
@@ -294,7 +299,17 @@ Agent <- R6::R6Class(
     #'   rebuilt agent keeps its policy.
     guardrail_set = function() private$guardrails,
 
-    #' @description Totals: calls made, tokens spent, tool calls, elapsed time.
+    #' @description Totals: calls made, tokens spent, tool calls, elapsed
+    #'   time, and the number of operations whose usage was not reported.
+    #' @return A one-row tibble with `calls`, `tokens_sent`, `tokens_received`,
+    #'   `tokens_total`, `tool_calls`, `seconds`, and `n_unknown_usage`.
+    #' @details
+    #' The token columns sum the counts providers reported. `n_unknown_usage`
+    #' counts model calls and embedding operations whose sent or received
+    #' count was not reported; it is `NA` when the agent was restored from
+    #' accounting that did not keep this count. The counters include tool-loop
+    #' rounds and embedding operations that have no call record of their own,
+    #' so they need not equal [diagnostics()] over the agent's call level.
     usage = function() {
       tibble::tibble(
         calls = private$n_calls,
@@ -303,7 +318,8 @@ Agent <- R6::R6Class(
         tokens_total = private$tok_sent + private$tok_rec,
         tool_calls = private$n_tool_calls,
         seconds = if (is.null(private$t_first)) 0 else
-          as.numeric(difftime(Sys.time(), private$t_first, units = "secs"))
+          as.numeric(difftime(Sys.time(), private$t_first, units = "secs")),
+        n_unknown_usage = private$n_unknown_usage
       )
     },
 
@@ -322,26 +338,31 @@ Agent <- R6::R6Class(
 
     #' @description Restore accounting after [load_agent()] (internal). Call,
     #'   token, and tool counters carry over so budgets stay binding across
-    #'   sessions; the wall-clock budget restarts.
+    #'   sessions; the wall-clock budget restarts. Accounting saved without
+    #'   `n_unknown_usage` restores that count as `NA`.
     #' @param usage A list or one-row frame with `calls`, `tokens_sent`,
-    #'   `tokens_received`, `tool_calls`.
+    #'   `tokens_received`, `tool_calls`, and optionally `n_unknown_usage`.
     #' @param spans A list of span records as returned by `$internal_spans()`.
     #' @param agent_id The agent's persisted id (so a reloaded agent keeps its
     #'   identity for leakage checks).
+    #' @return The agent, invisibly.
     restore_accounting = function(usage = NULL, spans = NULL, agent_id = NULL) {
       if (!is.null(usage)) {
         private$n_calls      <- as.integer(usage$calls %||% 0L)
-        private$tok_sent     <- as.integer(usage$tokens_sent %||% 0L)
-        private$tok_rec      <- as.integer(usage$tokens_received %||% 0L)
+        private$tok_sent     <- .add_na0(0L, usage$tokens_sent)
+        private$tok_rec      <- .add_na0(0L, usage$tokens_received)
         private$n_tool_calls <- as.integer(usage$tool_calls %||% 0L)
       }
+      private$n_unknown_usage <- as.integer(usage$n_unknown_usage %||% NA_integer_)
       if (is.list(spans) && length(spans)) private$spans <- spans
       if (!is.null(agent_id) && nzchar(agent_id)) private$agent_id <- agent_id
       invisible(self)
     },
 
-    #' @description Compact printout.
+    #' @description Compact printout. When some usage was not reported, a
+    #'   line says that the token totals include only recorded usage.
     #' @param ... Ignored.
+    #' @return The agent, invisibly.
     print = function(...) {
       u <- self$usage()
       cat(sprintf("<Agent %s | %s/%s | %d tool(s) | %s memory>\n",
@@ -349,6 +370,8 @@ Agent <- R6::R6Class(
                   length(self$tools), class(self$memory)[1]))
       cat(sprintf("  calls: %d | tokens: %d sent, %d received | tool calls: %d\n",
                   u$calls, u$tokens_sent, u$tokens_received, u$tool_calls))
+      if (is.na(u$n_unknown_usage)) cat("  Unknown-usage count unavailable.\n") else
+        if (u$n_unknown_usage > 0L) cat("  Token totals include only recorded usage.\n")
       if (!is.null(self$persona)) {
         p <- self$persona
         if (nchar(p) > 80) p <- paste0(substr(p, 1, 77), "...")
@@ -377,6 +400,7 @@ Agent <- R6::R6Class(
     n_tool_calls = 0L,
     tok_sent = 0L,
     tok_rec = 0L,
+    n_unknown_usage = 0L,
     t_first = NULL,
 
     default_caller = function(config, messages, tools, ...) {
@@ -469,7 +493,8 @@ Agent <- R6::R6Class(
           # loop was granted the remaining tool-call allowance and stops only
           # when the model asks for a call beyond it, so charge the full
           # allowance to n_tool_calls, and at least one model call to n_calls.
-          # Exact token usage is unavailable here; the tool-call and call
+          # Exact token usage is unavailable here, so the count of calls with
+          # unreported usage becomes unknown (NA); the tool-call and call
           # ceilings still bind cumulatively across exchanges, which is the
           # budget's guarantee.
           allowance <- self$budget$max_tool_calls - private$n_tool_calls
@@ -477,6 +502,7 @@ Agent <- R6::R6Class(
             private$n_tool_calls <- private$n_tool_calls + as.integer(allowance)
           }
           private$n_calls <- private$n_calls + 1L
+          private$n_unknown_usage <- NA_integer_
           private$span_add("budget_stop", note = "max_tool_calls")
           rlang::abort(
             message = sprintf(
@@ -520,8 +546,11 @@ Agent <- R6::R6Class(
         total_calls <- max(1L, as.integer(loop$model_calls))
         accounted_calls <- as.integer(loop$accounted_model_calls %||% 0L)
         private$n_calls <- private$n_calls + max(0L, total_calls - accounted_calls)
-        sent <- loop$sent
-        rec <- loop$rec
+        sent <- .usage_count(loop$sent)
+        rec <- .usage_count(loop$rec)
+        unknown <- .loop_unknown_usage(loop)
+        charged <- loop$accounted_unknown_usage %||% 0L
+        private$n_unknown_usage <- private$n_unknown_usage + max(0L, unknown - charged)
         sent_new <- if (is.na(sent %||% NA_integer_)) sent else
           max(0L, as.integer(sent) - as.integer(loop$accounted_sent %||% 0L))
         rec_new <- if (is.na(rec %||% NA_integer_)) rec else
@@ -529,22 +558,25 @@ Agent <- R6::R6Class(
       } else {
         u <- LLMR::tokens(resp)
         private$n_calls <- private$n_calls + 1L
-        sent <- u$sent
-        rec <- u$rec
+        sent <- .usage_count(u$sent)
+        rec <- .usage_count(u$rec)
+        private$n_unknown_usage <- private$n_unknown_usage + as.integer(is.na(sent) || is.na(rec))
         sent_new <- sent
         rec_new <- rec
       }
       private$tok_sent <- .add_na0(private$tok_sent, sent_new)
       private$tok_rec  <- .add_na0(private$tok_rec, rec_new)
 
-      # The canonical per-call provenance row (16 columns incl. request_hash,
-      # served model_version, success). Composing LLMR rather than reinventing.
-      rec_row <- tryCatch(
-        LLMR::llm_response_record(
+      # Build the response record from the reply and its request context.
+      record_error <- NULL
+      rec_row <- tryCatch({
+        rr <- LLMR::llm_response_record(
           resp, request = private$last_messages, config = private$last_cfg,
-          started_at = started, ended_at = ended),
-        error = function(e) NULL)
-      ok <- if (is.data.frame(rec_row)) isTRUE(rec_row$success[[1]]) else TRUE
+          started_at = started, ended_at = ended)
+        if (!.usable_record(rr)) stop("The response record is not a usable call row.")
+        rr
+      }, error = function(e) { record_error <<- conditionMessage(e); NULL })
+      ok <- if (!is.null(rec_row)) isTRUE(rec_row$success[[1]]) else !inherits(resp, "error")
 
       hist <- if (is.list(resp)) resp$tool_history else NULL
       hist <- hist %||% attr(resp, "tool_history")
@@ -575,16 +607,17 @@ Agent <- R6::R6Class(
         tokens_sent = suppressWarnings(as.integer(sent)),
         tokens_received = suppressWarnings(as.integer(rec)),
         duration = dur, started_at = started, ended_at = ended,
-        status = if (ok) "ok" else "error",
-        request_hash = if (is.data.frame(rec_row)) rec_row$request_hash[[1]] else NA_character_,
-        response_id = if (is.data.frame(rec_row)) rec_row$response_id[[1]] else NA_character_,
+        status = if (ok && !is.null(record_error)) "unrecorded" else if (ok) "ok" else "error",
+        note = record_error %||% NA_character_,
+        request_hash = if (is.data.frame(rec_row)) rec_row[["request_hash"]][[1]] %||% NA_character_ else NA_character_,
+        response_id = if (is.data.frame(rec_row)) rec_row[["response_id"]][[1]] %||% NA_character_ else NA_character_,
         # Carry the rendered request messages, the config's generation params,
         # the served model id, the usage, and the reply so the archive can emit
         # a true LLMR audit-log record (request body included) even when
         # llm_log_enable() was not active. The params matter for the join
         # invariant: request_hash is keyed on them, so an archived request body
         # written without them would recompute to a different hash.
-        meta = list(record = rec_row, streamed = isTRUE(streamed),
+        meta = list(record = rec_row, record_error = record_error, streamed = isTRUE(streamed),
                     request = private$last_messages,
                     params = private$last_cfg$model_params %||% list(),
                     provider = private$last_cfg$provider %||% NA_character_,
@@ -593,6 +626,9 @@ Agent <- R6::R6Class(
                     finish_reason = if (inherits(resp, "llmr_response")) resp$finish_reason else NA_character_,
                     text = if (inherits(resp, "llmr_response")) resp$text else NA_character_,
                     usage = if (inherits(resp, "llmr_response")) resp$usage else NULL))
+      if (!is.null(record_error)) warning(
+        "The reply was received, but its call record could not be constructed. ",
+        record_error, call. = FALSE)
       invisible(NULL)
     },
 
@@ -679,12 +715,15 @@ Agent <- R6::R6Class(
       accounted_tools <- as.integer(agg$accounted_tool_calls %||% 0L)
       private$n_calls <- private$n_calls +
         max(0L, as.integer(agg$model_calls %||% 0L) - accounted_calls)
-      if (isTRUE(agg$saw)) {
-        private$tok_sent <- private$tok_sent +
-          max(0L, as.integer(agg$sent %||% 0L) - accounted_sent)
-        private$tok_rec <- private$tok_rec +
-          max(0L, as.integer(agg$rec %||% 0L) - accounted_rec)
-      }
+      private$tok_sent <- .add_na0(private$tok_sent,
+        max(0L, .usage_count(agg$sent) - accounted_sent))
+      private$tok_rec <- .add_na0(private$tok_rec,
+        max(0L, .usage_count(agg$rec) - accounted_rec))
+      if (is.null(agg$n_unknown_usage)) agg$n_unknown_usage <- .loop_unknown_usage(agg)
+      charged <- agg$accounted_unknown_usage %||% 0L
+      private$n_unknown_usage <- private$n_unknown_usage +
+        max(0L, agg$n_unknown_usage - charged)
+      agg$accounted_unknown_usage <- agg$n_unknown_usage
       private$n_tool_calls <- private$n_tool_calls +
         max(0L, as.integer(agg$tool_calls %||% 0L) - accounted_tools)
       agg$accounted_model_calls <- as.integer(agg$model_calls %||% 0L)
@@ -710,6 +749,11 @@ Agent <- R6::R6Class(
       if (private$n_calls + 1L > b$max_calls) {
         fail("max_calls", sprintf("%d calls made", private$n_calls))
       }
+      if (is.finite(b$max_tokens) &&
+          (is.na(private$n_unknown_usage) || private$n_unknown_usage > 0L)) {
+        warning(sprintf("Token usage is incomplete for agent '%s'; max_tokens is checked against recorded tokens only.",
+                        self$name), call. = FALSE)
+      }
       if ((private$tok_sent + private$tok_rec) >= b$max_tokens) {
         fail("max_tokens", sprintf("%d tokens used",
                                    private$tok_sent + private$tok_rec))
@@ -732,7 +776,8 @@ Agent <- R6::R6Class(
 #' An agent is a persona plus a model: it remembers its conversation (see
 #' [memory]), can call R functions you expose as tools (via
 #' `LLMR::llm_tool()`), and refuses further calls when its [budget()] runs out. Use
-#' `agent$chat()` for a stateful conversation, `agent$ask_structured()` for
+#' `agent$chat()` for a stateful conversation, `agent$reply()` for an exchange
+#' that leaves memory unchanged, `agent$ask_structured()` for
 #' schema-shaped answers, and pass agents to [conversation()], [debate()],
 #' [focus_group()], [interview()], or [deliberate()] for multi-agent work.
 #'
@@ -745,11 +790,18 @@ Agent <- R6::R6Class(
 #'   stop the next round. The token limit stops the next round once recorded
 #'   use reaches it; one response can cross that threshold.
 #'
+#' A reply that arrives but whose call record cannot be built is kept: the
+#' agent warns and records the exchange as an event with status
+#' `"unrecorded"`, with the reason in its note. `agent$usage()` sums the token
+#' counts providers reported and counts, in `n_unknown_usage`, the calls whose
+#' usage was not reported; see [Agent] for its columns.
+#'
 #' @param name Display name (used in transcripts).
 #' @param config An `LLMR::llm_config()` for a generative model.
 #' @param persona Optional system prompt: who this agent is, what it wants,
 #'   how it speaks. For social-science personas, write it like a character
-#'   brief: background, dispositions, speech style.
+#'   brief: background, dispositions, speech style. A [persona_frame()] is
+#'   accepted too.
 #' @param tools A `LLMR::llm_tool()` or list of them. Tool calls the model
 #'   makes are executed automatically and fed back until it answers.
 #' @param memory A [memory] object; default keeps the last 40 messages.
@@ -760,17 +812,20 @@ Agent <- R6::R6Class(
 #' @param quiet If TRUE, `chat()` does not echo replies to the console.
 #' @return An [Agent] (R6) object.
 #' @examples
-#' \dontrun{
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b", temperature = 0.7)
 #' ada <- agent("Ada", cfg,
 #'              persona = "You are Ada, a meticulous statistician. Be brief.")
+#' ada
+#' ada$usage()
+#'
+#' \dontrun{
 #' ada$chat("In one sentence: what is overfitting?")
 #' ada$chat("And how would you detect it?")   # remembers the thread
 #' ada$chat("Walk me through cross-validation.", stream = TRUE)  # live tokens
 #' ada$usage()
 #' }
 #' @seealso [budget()], [memory], [agent_as_tool()], [agent_pipeline()],
-#'   [conversation()], [agent_experiment()]
+#'   [conversation()], [agent_experiment()], [save_agent()]
 #' @export
 agent <- function(name, config, persona = NULL, tools = list(),
                   memory = memory_buffer(), budget = LLMRagent::budget(),
@@ -778,4 +833,22 @@ agent <- function(name, config, persona = NULL, tools = list(),
   Agent$new(name = name, config = config, persona = persona, tools = tools,
             memory = memory, budget = budget, guardrails = guardrails,
             quiet = quiet)
+}
+
+# Normalize absent counts before storing spans or comparing recorded totals.
+.usage_count <- function(x) {
+  if (length(x) != 1L || is.na(x)) NA_integer_ else as.integer(x)
+}
+
+.loop_unknown_usage <- function(loop) {
+  if (!is.null(loop$n_unknown_usage)) return(as.integer(loop$n_unknown_usage))
+  n <- loop$model_calls %||% 0L
+  if (n == 0L) return(0L)
+  if (n == 1L) return(as.integer(is.na(.usage_count(loop$sent)) || is.na(.usage_count(loop$rec))))
+  rlang::warn(
+    paste("The tool-loop record does not contain enough information to recover",
+          "its unknown-usage count; LLMR 0.8.13 or later reports it."),
+    .frequency = "once",
+    .frequency_id = "llmragent-loop-unknown-usage")
+  NA_integer_
 }

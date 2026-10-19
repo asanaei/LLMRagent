@@ -16,6 +16,13 @@ agent: \code{chat()} for stateful exchanges, \code{reply()} for stateless ones
 (used by \code{\link[=conversation]{conversation()}}), \code{ask_structured()} for schema-shaped answers,
 plus accessors for the trace, usage, and transcript. The generator itself
 is internal; its constructor arguments are not a public contract.
+
+The token columns sum the counts providers reported. \code{n_unknown_usage}
+counts model calls and embedding operations whose sent or received
+count was not reported; it is \code{NA} when the agent was restored from
+accounting that did not keep this count. The counters include tool-loop
+rounds and embedding operations that have no call record of their own,
+so they need not equal \code{\link[=diagnostics]{diagnostics()}} over the agent's call level.
 }
 \keyword{internal}
 \section{Public fields}{
@@ -278,11 +285,16 @@ rebuilt agent keeps its policy.
 \if{html}{\out{<a id="method-Agent-usage"></a>}}
 \if{latex}{\out{\hypertarget{method-Agent-usage}{}}}
 \subsection{Method \code{usage()}}{
-Totals: calls made, tokens spent, tool calls, elapsed time.
+Totals: calls made, tokens spent, tool calls, elapsed
+time, and the number of operations whose usage was not reported.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{Agent$usage()}\if{html}{\out{</div>}}
 }
 
+\subsection{Returns}{
+A one-row tibble with \code{calls}, \code{tokens_sent}, \code{tokens_received},
+\code{tokens_total}, \code{tool_calls}, \code{seconds}, and \code{n_unknown_usage}.
+}
 }
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-Agent-transcript"></a>}}
@@ -311,7 +323,8 @@ counters are kept, since money was spent).
 \subsection{Method \code{restore_accounting()}}{
 Restore accounting after \code{\link[=load_agent]{load_agent()}} (internal). Call,
 token, and tool counters carry over so budgets stay binding across
-sessions; the wall-clock budget restarts.
+sessions; the wall-clock budget restarts. Accounting saved without
+\code{n_unknown_usage} restores that count as \code{NA}.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{Agent$restore_accounting(usage = NULL, spans = NULL, agent_id = NULL)}\if{html}{\out{</div>}}
 }
@@ -320,7 +333,7 @@ sessions; the wall-clock budget restarts.
 \if{html}{\out{<div class="arguments">}}
 \describe{
 \item{\code{usage}}{A list or one-row frame with \code{calls}, \code{tokens_sent},
-\code{tokens_received}, \code{tool_calls}.}
+\code{tokens_received}, \code{tool_calls}, and optionally \code{n_unknown_usage}.}
 
 \item{\code{spans}}{A list of span records as returned by \verb{$internal_spans()}.}
 
@@ -329,12 +342,16 @@ identity for leakage checks).}
 }
 \if{html}{\out{</div>}}
 }
+\subsection{Returns}{
+The agent, invisibly.
+}
 }
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-Agent-print"></a>}}
 \if{latex}{\out{\hypertarget{method-Agent-print}{}}}
 \subsection{Method \code{print()}}{
-Compact printout.
+Compact printout. When some usage was not reported, a
+line says that the token totals include only recorded usage.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{Agent$print(...)}\if{html}{\out{</div>}}
 }
@@ -345,6 +362,9 @@ Compact printout.
 \item{\code{...}}{Ignored.}
 }
 \if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+The agent, invisibly.
 }
 }
 \if{html}{\out{<hr>}}

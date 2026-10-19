@@ -13,15 +13,18 @@ when used as a standalone gate marker.}
 \item{prompt}{Optional text shown to the human reviewer.}
 }
 \value{
-The gated tool (when \code{x} is a tool), or a gate marker object.
+The gated tool (when \code{x} is a tool), or a gate marker object of
+class \code{llmragent_human_gate}.
 }
 \description{
 \code{human_gate()} is a marker used in two places. As a wrapper, \code{human_gate(tool)}
 returns the tool with its approval requirement set, equivalent to building it
-with \code{agent_tool(..., requires_approval = TRUE)}. As a workflow node (Stage 4),
-it pauses a run for sign-off. In an agent's tool list, any approval-required
-tool makes the agent run a pausable tool loop.
+with \code{agent_tool(..., requires_approval = TRUE)}. As a workflow node, it
+pauses a run for sign-off until \code{\link[=resume_workflow]{resume_workflow()}} is called. In an agent's
+tool list, any approval-required tool makes the agent run a pausable tool
+loop.
 }
 \seealso{
-\code{\link[=approve_tool_call]{approve_tool_call()}}, \code{\link[=resume_run]{resume_run()}}, \code{\link[=agent_tool]{agent_tool()}}
+\code{\link[=approve_tool_call]{approve_tool_call()}}, \code{\link[=resume_run]{resume_run()}}, \code{\link[=agent_tool]{agent_tool()}},
+\code{\link[=run_workflow]{run_workflow()}}
 }
