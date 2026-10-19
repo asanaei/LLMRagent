@@ -51,7 +51,6 @@ m <- memory_buffer(keep = 10)
 m$add("user", "hello")$add("assistant", "hi")
 length(m$get())
 
-\dontrun{
 cfg   <- LLMR::llm_config("groq", "openai/gpt-oss-20b")
 cheap <- LLMR::llm_config("groq", "llama-3.1-8b-instant")
 
@@ -63,5 +62,4 @@ scribe <- agent("Scribe", cfg,
 # an agent that recalls relevant old exchanges by embedding similarity
 emb <- LLMR::llm_config("gemini", "gemini-embedding-001", embedding = TRUE)
 sage <- agent("Sage", cfg, memory = memory_recall(emb, k = 4))
-}
 }
