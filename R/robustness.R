@@ -25,7 +25,12 @@
 #' @param paraphrase For `vary_prompt`: number of paraphrases to generate.
 #' @param config For `vary_prompt(paraphrase=)`: a generative config used once
 #'   to draft the paraphrases (hashed into the manifest).
-#' @param seed For `vary_option_order`: RNG seed for the random permutation.
+#' @param seed For `vary_option_order`: a seed for the `"random"` order, or
+#'   `NULL` (the default) to draw each permutation from the session's random
+#'   number stream, so that `set.seed()` before the battery makes the orders
+#'   reproducible. A supplied seed makes the order reproducible on its own:
+#'   every cell at the `"random"` level sees the same permutation, and the
+#'   session's random number state is restored afterwards.
 #' @return An `agent_axis` object.
 #' @name robustness-axes
 #' @seealso [agent_robustness()]
@@ -76,7 +81,7 @@ vary_persona <- function(...) {
 
 #' @rdname robustness-axes
 #' @export
-vary_option_order <- function(..., seed = 110) {
+vary_option_order <- function(..., seed = NULL) {
   orders <- c(...)
   if (!length(orders)) orders <- c("as_is", "reverse")
   structure(list(axis = "option_order", levels = orders, seed = seed),
@@ -297,10 +302,11 @@ agent_robustness <- function(run_fn, design = NULL, reps = 1L, vary = list(),
     lvl <- as.character(cond$option_order)
     switch(lvl,
       reverse = rev(options),
-      # Reproducible permutation WITHOUT disturbing the caller's RNG: snapshot
-      # and restore .Random.seed around the local set.seed (set.seed otherwise
-      # clobbers global RNG state, a documented footgun).
-      random  = .with_local_seed(ax$seed %||% 110, function() sample(options)),
+      # Without a seed the permutation comes from the caller's RNG stream. With
+      # one, snapshot and restore .Random.seed around the local set.seed, so a
+      # reproducible permutation does not clobber the caller's stream.
+      random  = if (is.null(ax$seed)) sample(options)
+                else .with_local_seed(ax$seed, function() sample(options)),
       options)
   }
   list(config = cfg, prompt = prompt_fn, persona = persona_fn, reorder = reorder_fn)

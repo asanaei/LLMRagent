@@ -17,7 +17,7 @@ vary_prompt(..., prompt = NULL, paraphrase = NULL, config = NULL)
 
 vary_persona(...)
 
-vary_option_order(..., seed = 110)
+vary_option_order(..., seed = NULL)
 }
 \arguments{
 \item{...}{For \code{vary_models}/\code{vary_temperature}, the levels (model names or
@@ -36,7 +36,12 @@ axis's levels (including the original as the baseline), so \code{run_fn}'s
 \item{config}{For \code{vary_prompt(paraphrase=)}: a generative config used once
 to draft the paraphrases (hashed into the manifest).}
 
-\item{seed}{For \code{vary_option_order}: RNG seed for the random permutation.}
+\item{seed}{For \code{vary_option_order}: a seed for the \code{"random"} order, or
+\code{NULL} (the default) to draw each permutation from the session's random
+number stream, so that \code{set.seed()} before the battery makes the orders
+reproducible. A supplied seed makes the order reproducible on its own:
+every cell at the \code{"random"} level sees the same permutation, and the
+session's random number state is restored afterwards.}
 }
 \value{
 An \code{agent_axis} object.

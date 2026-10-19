@@ -64,6 +64,81 @@ test_that("the perturb closure applies model/temperature/persona/order", {
   expect_identical(captured$reordered, c("c", "b", "a"))   # reversed
 })
 
+test_that("a random option order without a seed follows the session's RNG stream", {
+  opts <- letters[1:10]
+  random_orders <- function(reps = 1L) {
+    got <- list()
+    agent_robustness(function(cond, rep, perturb) {
+      got[[length(got) + 1L]] <<- perturb$reorder(opts)
+      "x"
+    },
+    reps = reps,
+    vary = list(option_order = vary_option_order("random")),
+    measure = function(r) r,
+    config = LLMR::llm_config("groq", "fake"))
+    got
+  }
+  expect_null(vary_option_order("random")$seed)
+
+  set.seed(4242)
+  first <- random_orders()[[1]]
+  set.seed(4242)
+  expect_identical(random_orders()[[1]], first)
+  expect_setequal(first, opts)
+  # The old default seeded every random order with 110, so the session's seed
+  # made no difference; now a different session seed gives a different order.
+  set.seed(4243)
+  expect_false(identical(random_orders()[[1]], first))
+  # Each draw is fresh, so two replicates see different permutations.
+  set.seed(4242)
+  two <- random_orders(reps = 2L)
+  expect_length(two, 2L)
+  expect_false(identical(two[[1]], two[[2]]))
+
+  # The permutation is the session's own draw, and it advances the stream.
+  inside <- NULL
+  agent_robustness(function(cond, rep, perturb) {
+    set.seed(4242)
+    before <- get(".Random.seed", envir = globalenv())
+    o <- perturb$reorder(opts)
+    inside <<- list(order = o, advanced = !identical(
+      before, get(".Random.seed", envir = globalenv())))
+    "x"
+  },
+  vary = list(option_order = vary_option_order("random")),
+  measure = function(r) r,
+  config = LLMR::llm_config("groq", "fake"))
+  set.seed(4242)
+  expect_identical(inside$order, sample(opts))
+  expect_true(inside$advanced)
+})
+
+test_that("a supplied seed fixes the random order and leaves .Random.seed untouched", {
+  opts <- letters[1:10]
+  captured <- list()
+  run_fn <- function(cond, rep, perturb) {
+    before <- get(".Random.seed", envir = globalenv())
+    o <- perturb$reorder(opts)
+    captured[[length(captured) + 1L]] <<- list(
+      order = o,
+      untouched = identical(before, get(".Random.seed", envir = globalenv())))
+    "x"
+  }
+  for (session_seed in c(1, 2)) {
+    set.seed(session_seed)
+    agent_robustness(run_fn, reps = 2L,
+      vary = list(option_order = vary_option_order("random", seed = 110)),
+      measure = function(r) r,
+      config = LLMR::llm_config("groq", "fake"))
+  }
+  set.seed(110)
+  expected <- sample(opts)
+  expect_length(captured, 4L)
+  expect_true(all(vapply(captured, `[[`, logical(1), "untouched")))
+  expect_true(all(vapply(captured, function(x) identical(x$order, expected),
+                         logical(1))))
+})
+
 test_that("diagnostics(agent_robustness) returns the overall summary", {
   run_fn <- function(cond, rep) "z"
   batt <- agent_robustness(run_fn, vary = list(model = c("a", "b")),

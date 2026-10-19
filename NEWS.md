@@ -50,6 +50,15 @@
   used only the first replicate of each unit and level. A paraphrase
   shortfall warns, and no usable paraphrase is an error.
 
+- `vary_option_order()` has `seed = NULL` by default. A `"random"` option
+  order is then drawn from the session's random number stream, so
+  `set.seed()` before `agent_robustness()` makes the orders reproducible, and
+  each cell and replicate gets its own permutation. A fixed seed of 110 used
+  to be applied unless another was given, so every cell saw the same
+  permutation whatever the session's seed. A supplied seed still gives every
+  cell the same permutation and leaves the session's random number state as
+  it was; `seed = 110` reproduces the orders of 0.8.1.
+
 - A failed `agent_fanout_synthesis()` worker becomes a failed call in the
   converted run, with its error and request hash; it used to have no call
   record, so diagnostics reported no failures. A strong-model call whose
