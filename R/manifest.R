@@ -66,8 +66,9 @@ hash_tool_spec <- function(tool) {
 #' ambient state such as values captured by a tool closure.
 #'
 #' The manifest also reports, outside the hash, how many calls the run made
-#' and the tokens they reported. `n_unknown_tokens` counts the successful
-#' calls that reported no total. The model list is read from the call records
+#' and the tokens they reported. `n_unknown_tokens` counts the calls, failed
+#' ones included, whose sent, received, or total count is missing, as
+#' [LLMR::llm_usage()] does. The model list is read from the call records
 #' when there are any (`models_basis = "calls"`) and from the participating
 #' agents otherwise (`"participants"`); since the model list is hashed, the
 #' two bases can give different hashes for otherwise identical runs. When the

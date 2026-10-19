@@ -28,8 +28,8 @@ call-level rows, and a one-line limits note stating that the results are
 model-conditioned and are not estimates of a human population.
 }
 \details{
-When some successful calls reported no total-token usage, the report says
-so beside the token sums. When the call records cannot be read, or the
+When some calls did not report their sent, received, or total token
+counts, the report says so beside the token sums. When the call records cannot be read, or the
 methods paragraph or the claim-language check cannot be produced, the
 report warns and says in its text what is missing.
 }

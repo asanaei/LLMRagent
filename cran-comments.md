@@ -17,14 +17,14 @@ introduces. Manifest hashes are computed as in 0.8.1.
 
 ## Dependencies
 
-Imports LLMR (>= 0.8.13). That version reports whether a tool call's
-arguments parsed, which this release relies on, and it is submitted to CRAN
-ahead of this package. All other Imports and Suggests are on CRAN.
+Imports LLMR (>= 0.8.14). That version reports whether a tool call's
+arguments parsed and counts calls with unreported usage by the rule this
+release uses; it is submitted to CRAN ahead of this package. All other Imports and Suggests are on CRAN.
 
 ## Test environments
 
 - local macOS 26.7 (arm64), R 4.4.3: `R CMD check --as-cran --no-manual`,
-  against LLMR 0.8.13
+  against LLMR 0.8.14
 
 ## R CMD check results
 

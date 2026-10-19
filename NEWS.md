@@ -1,6 +1,6 @@
 # LLMRagent 0.8.2
 
-- LLMRagent requires LLMR 0.8.13 or later. An agent never runs a tool call
+- LLMRagent requires LLMR 0.8.14 or later. An agent never runs a tool call
   whose arguments are not a JSON object, nor any call in a reply cut off by
   the output-token limit: the model receives an error result and can call the
   tool again, as with `LLMR::call_llm_tools()`. Agents with a finite budget,
@@ -70,12 +70,15 @@
 
 - `diagnostics()` reports `NA`, with a warning naming the level and the
   reason, for every figure that depends on a level of the run it cannot read,
-  and it adds a column `n_unknown_tokens`, the number of successful calls that
-  reported no total-token usage. It used to report zeros in both cases, so a
-  run whose call records could not be read showed no calls and no failures,
-  and a provider that reported no usage showed `tokens_total = 0`.
-  `duration_s` is `NA`, where it used to be 0, when calls exist but none
-  recorded a duration.
+  and it adds a column `n_unknown_tokens`, the number of calls, failed ones
+  included, whose sent, received, or total token count is missing. It used to
+  report zeros in both cases, so a run whose call records could not be read
+  showed no calls and no failures, and a provider that reported no usage
+  showed `tokens_total = 0`. The count follows `LLMR::llm_usage()` in LLMR
+  0.8.14: a total counts as known when both parts are, and skipped rows and
+  batch follow-on rows are not counted; `agent_manifest()`, `report()`, and
+  `view_run()` use the same rule. `duration_s` is `NA`, where it used to be
+  0, when calls exist but none recorded a duration.
 
 - `agent_manifest()` adds `models_basis` (whether the model list came from the
   call records or from the participating agents) and `n_unknown_tokens`, both
@@ -108,7 +111,7 @@
   earlier versions load with `n_unknown_usage = NA`.
 
 - `report()` says in its text when the call records could not be read or some
-  calls reported no total-token usage, and warns when the methods paragraph or
+  calls did not report their full usage, and warns when the methods paragraph or
   the claim-language check could not be produced. It used to print "Methods
   paragraph unavailable (no call records)" for every such failure and to skip
   a failed claim-language check without notice. `view_run()` shows the reason

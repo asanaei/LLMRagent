@@ -195,7 +195,7 @@
   }
   messages
 }
-# Tool arguments as LLMR::tool_calls() reads them (LLMR 0.8.13): absent,
+# Tool arguments as LLMR::tool_calls() reads them (LLMR 0.8.14): absent,
 # empty, or `null` text means no arguments, which tools without parameters
 # rely on; any other text must parse to a JSON object. Used for calls recorded
 # before tool_calls() reported `arguments_ok`, such as those in an approval

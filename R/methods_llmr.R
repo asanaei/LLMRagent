@@ -47,9 +47,11 @@ LLMR::reset
 #' [LLMR::llm_usage()] over the run's call-level rows, so they match the rest of
 #' the LLMR ecosystem.
 #'
-#' Token sums omit missing values, and `n_unknown_tokens` counts the successful
-#' calls that reported no total, so a sum of zero with a positive
-#' `n_unknown_tokens` does not mean that nothing was used. When a level of the
+#' Token sums omit missing values, and `n_unknown_tokens` counts the calls,
+#' failed ones included, whose sent, received, or total count is missing (a
+#' total counts as known when both parts are), so a sum of zero with a
+#' positive `n_unknown_tokens` does not mean that nothing was used. Skipped
+#' rows and batch follow-on rows are not counted. When a level of the
 #' run cannot be read, the figures that depend on it are `NA` and a warning
 #' names the level and the reason; the other figures are still computed. A run
 #' with no calls has zero counts and sums. `duration_s` adds the recorded call
@@ -71,8 +73,8 @@ LLMR::reset
 #'     \item{`n_blocked`}{Events with status `"blocked"` or `"stopped"`.}
 #'     \item{`duration_s`}{Sum of available call durations in seconds.}
 #'     \item{`manifest_hash`}{Study manifest hash, or `NA` when unavailable.}
-#'     \item{`n_unknown_tokens`}{Successful rows missing total-token usage,
-#'       excluding recorded batch follow-on rows.}
+#'     \item{`n_unknown_tokens`}{Calls whose sent, received, or total count
+#'       is missing, as defined by [LLMR::llm_usage()].}
 #'   }
 #' @examples
 #' a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"), quiet = TRUE)
@@ -144,12 +146,24 @@ diagnostics.agent_run <- function(x, ...) {
     cached_tokens = NA_integer_, n_unknown_tokens = NA_integer_, duration_s = NA_real_)
 }
 
+# Call rows whose usage is unknown, by the rule LLMR::llm_usage() applies
+# (LLMR 0.8.14): a total is known when it was reported or both parts are
+# known, and a row is unknown when its sent, received, or total count is
+# missing, whether the call succeeded or failed. Skipped rows (no call was
+# made) and batch follow-on rows (the usage sits on the batch's first row)
+# are not unknown.
 .unknown_tokens <- function(calls) {
   n <- nrow(calls)
-  ok <- calls[["success"]] %||% rep(NA, n)
-  total <- calls[["total_tokens"]] %||% rep(NA_integer_, n)
-  batch_i <- calls[["rowpack_row"]] %||% rep(NA_integer_, n)
-  sum((ok %in% TRUE) & is.na(total) & !(!is.na(batch_i) & batch_i > 1L))
+  col <- function(name, default) calls[[name]] %||% rep(default, n)
+  sent <- col("sent_tokens", NA_integer_)
+  rec <- col("rec_tokens", NA_integer_)
+  total <- col("total_tokens", NA_integer_)
+  finish <- col("finish_reason", NA_character_)
+  batch_i <- col("rowpack_row", NA_integer_)
+  total_known <- !is.na(total) | (!is.na(sent) & !is.na(rec))
+  follow_on <- !is.na(batch_i) & batch_i > 1L
+  as.integer(sum((is.na(sent) | is.na(rec) | !total_known) & !follow_on &
+                   !(finish %in% "skipped")))
 }
 
 .call_usage <- function(extracted) {
@@ -182,7 +196,7 @@ diagnostics.agent_run <- function(x, ...) {
   })
   unknown <- .unknown_tokens(calls)
   if (unknown > 0L) methods <- c(methods, sprintf(
-    "%d successful call record(s) lack total-token usage. The token sums include reported counts.", unknown))
+    "%d call record(s) lack a sent, received, or total token count. The token sums include reported counts only.", unknown))
   methods
 }
 
@@ -254,8 +268,8 @@ diagnostics.agent_experiment <- function(x, ...) {
 #' call-level rows, and a one-line limits note stating that the results are
 #' model-conditioned and are not estimates of a human population.
 #'
-#' When some successful calls reported no total-token usage, the report says
-#' so beside the token sums. When the call records cannot be read, or the
+#' When some calls did not report their sent, received, or total token
+#' counts, the report says so beside the token sums. When the call records cannot be read, or the
 #' methods paragraph or the claim-language check cannot be produced, the
 #' report warns and says in its text what is missing.
 #'

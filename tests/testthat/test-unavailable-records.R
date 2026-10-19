@@ -62,28 +62,55 @@ test_that("usage summarization failure retains the readable row count", {
   expect_equal(diagnostics(r)$duration_s, 0)
 })
 
-test_that("unknown totals use LLMR's definition with an older usage API", {
+test_that("unknown usage follows LLMR's rule in diagnostics, manifests, and reports", {
   r <- record_fixture()
   row <- r$spans[[1]]
-  r$spans <- rep(list(row), 5L)
-  for (i in seq_along(r$spans)) {
-    r$spans[[i]]$span_id <- paste0("s", i)
-    r$spans[[i]]$meta$record$total_tokens <- c(NA_integer_, 0L, NA_integer_, NA_integer_, NA_integer_)[i]
-    r$spans[[i]]$meta$record$success <- c(TRUE, TRUE, FALSE, TRUE, TRUE)[i]
-    r$spans[[i]]$meta$record$rowpack_row <- c(NA_integer_, NA_integer_, NA_integer_, 2L, 1L)[i]
+  # One row per hard case. Unknown: a total reported without its parts, one
+  # part only, a failed call without usage, and the first row of a batch
+  # without usage. Known: both parts without a total (the total is their
+  # sum), a failed call that reported usage, and a complete row. Not counted:
+  # a batch follow-on row and a skipped row.
+  cases <- data.frame(
+    sent    = c(NA, 10L, 10L, NA, 10L, NA, NA, 10L, NA),
+    rec     = c(NA, NA, 5L, NA, 5L, NA, NA, 5L, NA),
+    total   = c(15L, NA, NA, NA, 15L, NA, NA, 15L, NA),
+    success = c(TRUE, TRUE, TRUE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE),
+    finish  = c("stop", "stop", "stop", "error", "error", NA, "skipped", "stop", NA),
+    batch_i = c(NA, NA, NA, NA, NA, 2L, NA, NA, 1L))
+  r$spans <- lapply(seq_len(nrow(cases)), function(i) {
+    s <- row
+    s$span_id <- paste0("s", i)
+    s$meta$record$sent_tokens <- cases$sent[i]
+    s$meta$record$rec_tokens <- cases$rec[i]
+    s$meta$record$total_tokens <- cases$total[i]
+    s$meta$record$success <- cases$success[i]
+    s$meta$record$finish_reason <- cases$finish[i]
+    s$meta$record$rowpack_row <- cases$batch_i[i]
+    s
+  })
+  calls <- tibble::as_tibble(r, "call")
+  expect_identical(LLMR::llm_usage(calls)$n_unknown_tokens, 4L)
+  expect_identical(.unknown_tokens(calls), 4L)
+  expect_identical(diagnostics(r)$n_unknown_tokens, 4L)
+  expect_identical(agent_manifest(r)$n_unknown_tokens, 4L)
+  expect_true(any(grepl("4 call record(s) lack a sent, received, or total token count",
+                        report(r), fixed = TRUE)))
+  # The package's own count agrees with LLMR's on each case taken alone.
+  for (i in seq_len(nrow(cases))) {
+    one <- calls[i, , drop = FALSE]
+    expect_identical(.unknown_tokens(one), LLMR::llm_usage(one)$n_unknown_tokens,
+                     info = paste("case", i))
   }
-  expect_identical(diagnostics(r)$n_unknown_tokens, 2L)
+  # A usage summary without the count falls back to the package's own.
   real <- LLMR::llm_usage
   with_stub_llmr("llm_usage", function(x) { out <- real(x); out$n_unknown_tokens <- NULL; out }, {
-    expect_identical(diagnostics(r)$n_unknown_tokens, 2L)
-    expect_identical(agent_manifest(r)$n_unknown_tokens, 2L)
+    expect_identical(diagnostics(r)$n_unknown_tokens, 4L)
   })
-  r$spans <- r$spans[2]
+  r$spans <- r$spans[8]
   expect_identical(diagnostics(r)$n_unknown_tokens, 0L)
-  r$spans[[1]]$meta$record$total_tokens <- NULL
-  with_stub_llmr("llm_usage", function(x) { out <- real(x); out$n_unknown_tokens <- NULL; out }, {
-    expect_identical(diagnostics(r)$n_unknown_tokens, 1L)
-  })
+  # A record without token columns at all counts as unknown.
+  r$spans[[1]]$meta$record[c("sent_tokens", "rec_tokens", "total_tokens")] <- NULL
+  expect_identical(.unknown_tokens(tibble::as_tibble(r, "call")), 1L)
 })
 
 test_that("manifest metadata leaves the existing hashed body unchanged", {

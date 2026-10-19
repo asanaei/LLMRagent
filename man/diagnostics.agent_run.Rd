@@ -26,8 +26,8 @@ A one-row tibble with the following columns.
 \item{\code{n_blocked}}{Events with status \code{"blocked"} or \code{"stopped"}.}
 \item{\code{duration_s}}{Sum of available call durations in seconds.}
 \item{\code{manifest_hash}}{Study manifest hash, or \code{NA} when unavailable.}
-\item{\code{n_unknown_tokens}}{Successful rows missing total-token usage,
-excluding recorded batch follow-on rows.}
+\item{\code{n_unknown_tokens}}{Calls whose sent, received, or total count
+is missing, as defined by \code{\link[LLMR:llm_usage]{LLMR::llm_usage()}}.}
 }
 }
 \description{
@@ -38,9 +38,11 @@ study's \code{manifest_hash}. Token and outcome figures are read through
 the LLMR ecosystem.
 }
 \details{
-Token sums omit missing values, and \code{n_unknown_tokens} counts the successful
-calls that reported no total, so a sum of zero with a positive
-\code{n_unknown_tokens} does not mean that nothing was used. When a level of the
+Token sums omit missing values, and \code{n_unknown_tokens} counts the calls,
+failed ones included, whose sent, received, or total count is missing (a
+total counts as known when both parts are), so a sum of zero with a
+positive \code{n_unknown_tokens} does not mean that nothing was used. Skipped
+rows and batch follow-on rows are not counted. When a level of the
 run cannot be read, the figures that depend on it are \code{NA} and a warning
 names the level and the reason; the other figures are still computed. A run
 with no calls has zero counts and sums. \code{duration_s} adds the recorded call

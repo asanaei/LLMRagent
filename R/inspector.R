@@ -341,6 +341,6 @@ print.agent_inspector_path <- function(x, ...) {
 .view_usage_note <- function(head) {
   unknown <- head$n_unknown_tokens %||% NA_integer_
   if (is.na(unknown)) "Token usage statistics are unavailable." else
-    if (unknown > 0L) sprintf("Token totals include only reported usage; %d successful call(s) reported no total.",
+    if (unknown > 0L) sprintf("Token totals include only reported usage; %d call(s) did not report full usage.",
                               unknown) else ""
 }
