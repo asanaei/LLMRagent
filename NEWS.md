@@ -5,7 +5,9 @@
   number for `reps`. Converting an experiment with `as_agent_run()` records the
   status of every cell in a `cells` artifact and warns when cells contributed
   no events; failed cells and cells that returned plain values used to vanish
-  from the converted run.
+  from the converted run. The run's design reports the number of converted
+  cells as `n_converted`. The manifest hash leaves that count out, so an
+  experiment's hash is the one 0.8.1 computed for it.
 
 - `check_state_leakage()` reports `clean = NA`, with a warning and the list of
   unexamined cells, when no leak is found but some cells could not be

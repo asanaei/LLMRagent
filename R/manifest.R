@@ -88,12 +88,18 @@ agent_manifest <- function(run) {
   tools_tbl <- .manifest_tools(r)
   params_tbl <- .manifest_params(r)
 
+  # The hash covers the run's specification. An experiment's design also
+  # reports how many cells contributed events (`n_converted`); that count is an
+  # outcome, so it stays out of the hash, which keeps an experiment's hash equal
+  # to the one computed before the count was recorded.
+  spec_design <- r$design
+  if (is.list(spec_design)) spec_design$n_converted <- NULL
   body <- list(
     kind         = r$kind,
-    design       = r$design,
+    design       = spec_design,
     personas     = r$participants[, intersect(c("name", "persona_hash"), names(r$participants)), drop = FALSE],
     tools        = tools_tbl,
-    workflow     = list(kind = r$kind, design = r$design),
+    workflow     = list(kind = r$kind, design = spec_design),
     models       = models,
     params       = params_tbl,
     pkg_versions = r$pkg_versions
