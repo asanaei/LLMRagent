@@ -6,8 +6,9 @@ Update of LLMRagent 0.8.1 on CRAN. This release corrects records that were
 wrong without saying so. An agent no longer runs a tool call whose arguments
 did not parse, or that came from a reply cut off at the token limit; the
 model receives an error result instead. Converted experiments, robustness
-batteries, fan-out results, and workflow replays keep their failed cells,
-measurements, and calls rather than dropping them. A finished run's manifest
+batteries, and fan-out results keep their failed cells, measurements, and
+calls rather than dropping them, and a workflow replay that stops early is
+rejected. A finished run's manifest
 and state view no longer change when its agents are reused. Diagnostics,
 manifests, reports, and archives report missing values with a warning where
 they used to report zeros, and archives no longer copy a whole live audit
