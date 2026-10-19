@@ -12,13 +12,16 @@
 \item{...}{Unused.}
 }
 \value{
-A one-row tibble with \code{n_personas}, \code{n_flagged}, \code{max_hits}, and
-\code{mean_caricature}.
+A one-row tibble with \code{n_personas}, \code{n_flagged}, \code{max_hits},
+\code{mean_caricature}, and \code{n_model_failures}.
 }
 \description{
 A one-row summary of a \code{\link[=persona_audit]{persona_audit()}}: the number of personas, how many
-tripped the lexical scan, the worst single hit count, and the mean model
-caricature score (\code{NaN} when no model layer ran).
+tripped the lexical scan, the worst single hit count, the mean model
+caricature score, and the number of personas the model layer failed to
+score. \code{mean_caricature} is \code{NaN} when no caricature score is available:
+either no model layer ran (\code{n_model_failures} is 0) or it failed for every
+persona.
 }
 \seealso{
 \code{\link[=persona_audit]{persona_audit()}}

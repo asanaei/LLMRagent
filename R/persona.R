@@ -354,7 +354,10 @@ print.persona_set <- function(x, ...) {
 #'   is flagged.
 #' - **Model** (optional, when `config` is a generative `LLMR::llm_config()`):
 #'   each brief is scored on caricature and essentialism on a 0--1 scale via
-#'   [LLMR::llm_judge()]. Without a config these scores are `NA`.
+#'   [LLMR::llm_judge()]. Without a config these scores are `NA`. A score the
+#'   judge does not produce, because the call failed or the reply held no
+#'   number in \[0, 1\], is `NA` as well; `notes` then gives the reason and
+#'   the function warns, so a failed judge is not read as one that never ran.
 #'
 #' The lexical layer is a screening pass, not a proof: a clean scan does not certify a
 #' brief is unbiased, and a hit may be a false positive in quoted speech. Treat
@@ -402,6 +405,21 @@ persona_audit <- function(p_or_set, config = NULL, dimensions = NULL) {
     scored <- .persona_model_scores(texts, config, dimensions)
     caricature   <- scored$caricature
     essentialism <- scored$essentialism
+    failed <- 0L
+    for (quality in names(scored$problems)) {
+      prob <- scored$problems[[quality]]
+      hit <- !is.na(prob)
+      failed <- failed + sum(hit)
+      note <- sprintf("%s %s: %s", .model_score_note, quality, prob[hit])
+      notes[hit] <- ifelse(nzchar(notes[hit]), paste(notes[hit], note, sep = "; "), note)
+    }
+    if (failed) {
+      first <- unlist(scored$problems, use.names = FALSE)
+      warning(sprintf(paste0(
+        "The model layer could not produce %d of %d score(s); they are NA, and ",
+        "`notes` gives each reason (first: %s)."),
+        failed, 2L * length(frames), first[!is.na(first)][1]), call. = FALSE)
+    }
   }
 
   out <- tibble::tibble(
@@ -414,6 +432,9 @@ persona_audit <- function(p_or_set, config = NULL, dimensions = NULL) {
   class(out) <- c("persona_audit", class(out))
   out
 }
+
+# The prefix of a note that records a model score the judge did not produce.
+.model_score_note <- "model score unavailable for"
 
 # Normalize the accepted inputs (a single frame, a persona_set, or a bare list
 # of frames) to a flat list of persona_frame objects.
@@ -466,15 +487,17 @@ persona_audit <- function(p_or_set, config = NULL, dimensions = NULL) {
 }
 
 # Model layer: score each brief on caricature and essentialism (0-1) with
-# LLMR::llm_judge over a one-column data frame. Robust to a judge that returns
-# nothing parseable (leaves NA).
+# LLMR::llm_judge over a one-column data frame. A score that cannot be obtained
+# is NA, and `problems` gives the reason for each such row, so a failed judge
+# is not mistaken for a model layer that never ran.
 #' @keywords internal
 #' @noRd
 .persona_model_scores <- function(texts, config, dimensions = NULL) {
   dims <- dimensions %||% c("caricature", "out-group homogeneity", "essentialism")
-  dim_txt <- paste(dims, collapse = ", ")
-  na_out <- list(caricature   = rep(NA_real_, length(texts)),
-                 essentialism = rep(NA_real_, length(texts)))
+  # The prompt is a template: braces in user-supplied dimension names are
+  # doubled so that they reach the judge as written.
+  dim_txt <- gsub("([{}])", "\\1\\1", paste(dims, collapse = ", "))
+  n <- length(texts)
 
   score_one <- function(quality, instruction) {
     df <- data.frame(text = texts, stringsAsFactors = FALSE)
@@ -483,27 +506,40 @@ persona_audit <- function(p_or_set, config = NULL, dimensions = NULL) {
       "no ", quality, " (an individuated, fair sketch) and 1 means severe ",
       quality, " (a flattening, stereotyped caricature). ", instruction,
       " Consider these failure modes: ", dim_txt,
-      ". Return your reasoning and a single numeric score in [0, 1].")
+      ". Return your reasoning and a single numeric score in [0, 1].",
+      "\n\nPersona brief:\n{.target}")
+    fail_all <- function(msg) list(score = rep(NA_real_, n), problem = rep(msg, n))
     judged <- tryCatch(
       LLMR::llm_judge(df, .target = text, .config = config,
                       prompt = prompt, .tags = c("reasoning", "score")),
-      error = function(e) NULL)
-    if (is.null(judged)) return(rep(NA_real_, length(texts)))
+      error = function(e) e)
+    if (inherits(judged, "error")) {
+      return(fail_all(paste("the judge call failed:", conditionMessage(judged))))
+    }
     col <- intersect(c("judge_res_score", "score"), names(judged))
-    if (!length(col)) return(rep(NA_real_, length(texts)))
-    s <- suppressWarnings(as.numeric(judged[[col[1]]]))
-    if (length(s) != length(texts)) return(rep(NA_real_, length(texts)))
-    s
+    if (!length(col)) return(fail_all("the judge returned no score column"))
+    raw <- judged[[col[1]]]
+    if (length(raw) != n) {
+      return(fail_all(sprintf("the judge returned %d score(s) for %d persona(s)",
+                              length(raw), n)))
+    }
+    s <- suppressWarnings(as.numeric(raw))
+    bad <- is.na(s) | s < 0 | s > 1
+    problem <- rep(NA_character_, n)
+    problem[bad & is.na(raw)] <- "the judge returned no score"
+    problem[bad & !is.na(raw)] <- sprintf("the judge's score %s is not a number in [0, 1]",
+                                          encodeString(as.character(raw[bad & !is.na(raw)]),
+                                                       quote = "\""))
+    s[bad] <- NA_real_
+    list(score = s, problem = problem)
   }
 
-  caricature <- tryCatch(
-    score_one("caricature", "Judge how much the brief reduces a person to a type."),
-    error = function(e) na_out$caricature)
-  essentialism <- tryCatch(
-    score_one("essentialism",
-              "Judge how much the brief treats a demographic as destiny."),
-    error = function(e) na_out$essentialism)
-  list(caricature = caricature, essentialism = essentialism)
+  caricature <- score_one("caricature", "Judge how much the brief reduces a person to a type.")
+  essentialism <- score_one("essentialism",
+                            "Judge how much the brief treats a demographic as destiny.")
+  list(caricature = caricature$score, essentialism = essentialism$score,
+       problems = list(caricature = caricature$problem,
+                       essentialism = essentialism$problem))
 }
 
 #' @rdname persona_audit
@@ -533,13 +569,16 @@ print.persona_audit <- function(x, ...) {
 #' Machine-readable diagnostics for a persona audit
 #'
 #' A one-row summary of a [persona_audit()]: the number of personas, how many
-#' tripped the lexical scan, the worst single hit count, and the mean model
-#' caricature score (`NaN` when no model layer ran).
+#' tripped the lexical scan, the worst single hit count, the mean model
+#' caricature score, and the number of personas the model layer failed to
+#' score. `mean_caricature` is `NaN` when no caricature score is available:
+#' either no model layer ran (`n_model_failures` is 0) or it failed for every
+#' persona.
 #'
 #' @param x A [persona_audit()] result.
 #' @param ... Unused.
-#' @return A one-row tibble with `n_personas`, `n_flagged`, `max_hits`, and
-#'   `mean_caricature`.
+#' @return A one-row tibble with `n_personas`, `n_flagged`, `max_hits`,
+#'   `mean_caricature`, and `n_model_failures`.
 #' @seealso [persona_audit()]
 #' @importFrom LLMR diagnostics
 #' @exportS3Method LLMR::diagnostics persona_audit
@@ -549,5 +588,7 @@ diagnostics.persona_audit <- function(x, ...) {
     n_personas      = as.integer(n),
     n_flagged       = as.integer(sum(x$flag_lexical %||% logical(0), na.rm = TRUE)),
     max_hits        = if (n) max(x$n_lexical_hits, na.rm = TRUE) else 0L,
-    mean_caricature = if (n) mean(x$caricature_score, na.rm = TRUE) else NA_real_)
+    mean_caricature = if (n) mean(x$caricature_score, na.rm = TRUE) else NA_real_,
+    n_model_failures = as.integer(sum(grepl(.model_score_note, x$notes %||% character(0),
+                                            fixed = TRUE))))
 }

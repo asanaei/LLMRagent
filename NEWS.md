@@ -138,6 +138,15 @@
   `replay_run()` order state snapshots by step number; they used to sort the
   file names as text, which misplaced steps beyond 999.
 
+- `persona_audit()` sends each persona brief to the judge. Its model layer
+  used to send only the scoring instructions, so the caricature and
+  essentialism scores did not depend on the brief being scored. A score the
+  judge does not produce (the call failed, or the reply held no number in
+  [0, 1]) is `NA` with the reason in `notes`, and the function warns ("The
+  model layer could not produce ... score(s)"); such a failure used to leave
+  `notes` empty and read like a model layer that never ran. Scores outside
+  [0, 1] are now `NA`. `diagnostics()` of an audit adds `n_model_failures`.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and

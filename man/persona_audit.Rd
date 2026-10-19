@@ -42,7 +42,10 @@ A brief that says a demographic \emph{naturally} or \emph{always} thinks somethi
 is flagged.
 \item \strong{Model} (optional, when \code{config} is a generative \code{LLMR::llm_config()}):
 each brief is scored on caricature and essentialism on a 0--1 scale via
-\code{\link[LLMR:llm_judge]{LLMR::llm_judge()}}. Without a config these scores are \code{NA}.
+\code{\link[LLMR:llm_judge]{LLMR::llm_judge()}}. Without a config these scores are \code{NA}. A score the
+judge does not produce, because the call failed or the reply held no
+number in [0, 1], is \code{NA} as well; \code{notes} then gives the reason and
+the function warns, so a failed judge is not read as one that never ran.
 }
 
 The lexical layer is a screening pass, not a proof: a clean scan does not certify a

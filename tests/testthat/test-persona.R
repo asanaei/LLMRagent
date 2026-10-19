@@ -100,3 +100,71 @@ test_that("auditing a persona_set scores every brief and diagnostics summarizes"
   expect_equal(d$n_personas, 2L)
   expect_true(is.numeric(d$n_flagged) || is.integer(d$n_flagged))
 })
+
+# A stand-in for LLMR's parallel caller that answers every row with `reply`
+# and keeps the prompts it was sent.
+judge_stub <- function(reply, seen) {
+  function(experiments, ...) {
+    seen$prompts <- c(seen$prompts, vapply(experiments$messages, function(m) m[["user"]], ""))
+    n <- nrow(experiments)
+    experiments$response_text <- reply(seq_len(n))
+    experiments$success <- TRUE
+    experiments$finish_reason <- "stop"
+    for (col in c("sent_tokens", "rec_tokens", "total_tokens", "reasoning_tokens",
+                  "status_code")) experiments[[col]] <- rep(NA_integer_, n)
+    for (col in c("response_id", "error_message", "error_code", "bad_param")) {
+      experiments[[col]] <- rep(NA_character_, n)
+    }
+    experiments$duration <- rep(0.01, n)
+    experiments
+  }
+}
+
+test_that("the model layer shows each brief to the judge", {
+  set <- persona_variants(persona_frame("A small-business owner.", source = "synthetic"),
+                          vary = list(age = c("35", "60")))
+  seen <- new.env()
+  audit <- suppressWarnings(with_stub_llmr("call_llm_par", judge_stub(
+    function(i) "<reasoning>r</reasoning><score>0.2</score>", seen),
+    persona_audit(set, config = LLMR::llm_config("groq", "fake"))))
+  expect_equal(audit$caricature_score, c(0.2, 0.2))
+  expect_length(seen$prompts, 4L)
+  expect_true(all(grepl("A small-business owner.", seen$prompts, fixed = TRUE)))
+  expect_true(any(grepl("age: 35", seen$prompts, fixed = TRUE)))
+  expect_true(any(grepl("age: 60", seen$prompts, fixed = TRUE)))
+  expect_identical(diagnostics(audit)$n_model_failures, 0L)
+})
+
+test_that("a failed or malformed judge is reported, not read as no model layer", {
+  set <- persona_variants(persona_frame("A small-business owner.", source = "synthetic"),
+                          vary = list(age = c("35", "60")))
+  cfg <- LLMR::llm_config("groq", "fake")
+  # The judge call fails outright.
+  with_stub_llmr("llm_judge", function(...) stop("judge unreachable"), {
+    expect_warning(audit <- persona_audit(set, config = cfg),
+                   "could not produce 4 of 4 score\\(s\\).*judge unreachable")
+  })
+  expect_true(all(is.na(audit$caricature_score)))
+  expect_true(all(grepl("model score unavailable for caricature: the judge call failed: judge unreachable",
+                        audit$notes, fixed = TRUE)))
+  d <- diagnostics(audit)
+  expect_true(is.nan(d$mean_caricature))
+  expect_identical(d$n_model_failures, 2L)
+  # Scores that are not numbers in [0, 1] become NA with the reply quoted.
+  seen <- new.env()
+  replies <- c("<score>high</score>", "<score>7</score>", "<score>0.4</score>", "<score>0.1</score>")
+  k <- 0L
+  expect_warning(audit <- with_stub_llmr("call_llm_par", judge_stub(function(i) {
+    out <- replies[k + i]; k <<- k + length(i); out
+  }, seen), persona_audit(set, config = cfg)), "could not produce 2 of 4")
+  expect_true(all(is.na(audit$caricature_score)))
+  expect_equal(audit$essentialism_score, c(0.4, 0.1))
+  expect_match(audit$notes[1], 'score "high" is not a number in [0, 1]', fixed = TRUE)
+  expect_match(audit$notes[2], 'score "7" is not a number in [0, 1]', fixed = TRUE)
+  expect_identical(diagnostics(audit)$n_model_failures, 2L)
+  # Without a config nothing ran, and nothing failed.
+  plain <- persona_audit(set)
+  expect_true(is.nan(diagnostics(plain)$mean_caricature))
+  expect_identical(diagnostics(plain)$n_model_failures, 0L)
+  expect_identical(plain$notes, c("", ""))
+})
