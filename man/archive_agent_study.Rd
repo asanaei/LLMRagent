@@ -2,6 +2,7 @@
 % Please edit documentation in R/archive.R
 \name{archive_agent_study}
 \alias{archive_agent_study}
+\alias{print.agent_archive}
 \title{Seal an agent study to a directory}
 \usage{
 archive_agent_study(
@@ -12,6 +13,8 @@ archive_agent_study(
   formats = c("csv", "jsonl", "rds"),
   overwrite = FALSE
 )
+
+\method{print}{agent_archive}(x, ...)
 }
 \arguments{
 \item{run}{An object accepted by \code{\link[=as_agent_run]{as_agent_run()}} (an \link{Agent}, a conversation
@@ -21,10 +24,10 @@ or preset result, a pipeline, an experiment, or an \code{agent_run}).}
 
 \item{include_messages}{If \code{TRUE} (default), write the transcript and the
 free-text columns of the tool and state tables. If \code{FALSE}, those tables
-are still written but their free-text columns are blanked, keeping only
-structure, hashes, and metadata; the records in \code{calls.jsonl} likewise
-omit the request body and reply text (each record keeps its precomputed
-\code{request_hash}, so the join invariant holds).}
+are still written but their free-text columns are replaced by
+\code{"[OMITTED]"}, keeping only structure, hashes, and metadata; the records in
+\code{calls.jsonl} likewise omit the request body and reply text (each record
+keeps its precomputed \code{request_hash}, so the join invariant holds).}
 
 \item{redact}{Optional redaction applied to the free-text columns of the
 written transcript, tool, and state tables (\code{text}, \code{content}, \code{arguments},
@@ -41,12 +44,22 @@ privacy-filtered, data-only run snapshot as \code{run.rds}). Defaults to all
 three.}
 
 \item{overwrite}{If \code{FALSE} (default), refuse a non-empty \code{path}. Set to
-\code{TRUE} to replace archive files in an existing directory.}
+\code{TRUE} to replace archive files in an existing directory; other files in
+it are left alone.}
+
+\item{x}{An \code{agent_archive}.}
+
+\item{...}{Unused.}
 }
 \value{
 Invisibly, an object of class \code{agent_archive}: a list with \code{path},
-\code{files} (relative paths written), \code{manifest_hash}, and \code{n_calls}. Print
-lists what was written and confirms the seal.
+\code{files} (relative paths written), \code{manifest_hash} (\code{NA} when the manifest
+could not be built), \code{n_calls} (\code{NA} when the call records could not be
+read), \code{calls_source} (where \code{calls.jsonl} came from, or \code{"none"}),
+\code{llm_log_compatible} (whether \code{calls.jsonl} is an LLMR audit log), and
+\code{write_failures} (a tibble with columns \code{file} and \code{error}, with no rows
+when every file was written). Print lists what was written and whether
+it was sealed.
 }
 \description{
 Writes a self-contained, hash-sealed archive of a run: the study
@@ -65,6 +78,7 @@ is a data-only snapshot of the same projected levels written to the text
 formats. Live agents, callers, tool functions, model configurations, and
 configuration secrets are never serialized into the archive. Message
 omission and redaction apply to this snapshot as well as the text files.
+They do not reach the manifest, artifacts, or error messages.
 
 Hashes are identity, not outcome. The \code{request_hash} in \code{calls.jsonl} is
 computed over the original request, so a call read back from the archive
@@ -83,10 +97,29 @@ cannot be read, or the run's calls carry no request hashes, \code{calls.jsonl} i
 rendered from the run's own call records instead, with a warning. When a
 privacy lever cannot be applied, the copied records are removed and
 \code{calls.jsonl} is not written.
+
+Each file is written in its own step. A file that cannot be produced is
+removed, recorded in \code{write_failures}, and reported in one warning at the
+end; the rest of the archive is still written. A level of the run that
+cannot be read is not written as an empty table (a level that is readable
+and empty is), \code{run.rds} is omitted when any of its levels cannot be read,
+and no \code{manifest.json} is written when the manifest cannot be built. The
+seal is written last, over the final bytes of every other listed file, and
+is listed only when it was written; the methods note lists it only then.
+A partial archive is still sealed. A checksum identifies bytes; it does not
+establish that the run's record is complete. A destination directory that
+cannot be created, or a failed file that cannot be removed, is an error.
 }
 \examples{
+a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"), quiet = TRUE)
+a$memory$add("user", "Hello")
+dir <- file.path(tempdir(), "aria-study")
+arch <- archive_agent_study(a, dir, include_messages = FALSE)
+arch
+arch$write_failures
+unlink(dir, recursive = TRUE)
+
 \dontrun{
-a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"))
 a$chat("Hello")
 archive_agent_study(a, tempfile("study_"))
 }

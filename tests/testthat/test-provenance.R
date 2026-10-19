@@ -1,5 +1,5 @@
-# Stage 1 provenance spine: agent_run, the five tidy levels, manifest, archive,
-# and the diagnostics/report generic methods. All offline via the fake caller.
+# Tests for run views, manifests, archives, diagnostics, and reports.
+# Model responses are supplied by the fake caller.
 
 test_that("as_agent_run on a chat agent exposes the five tidy levels", {
   a <- fake_agent("Ada", list("first reply", "second reply"))
@@ -215,7 +215,7 @@ test_that("archived calls keep the request-hash join when the config has params"
     LLMR::llm_request_hash(cfg, list(list(role = "user", content = "q"))))
 })
 
-test_that("an archive is honest when the live log has none of the run's calls", {
+test_that("an archive records an empty live-log selection", {
   # a "live log" whose records belong to some other run
   other <- fake_agent("Other", list("unrelated"))
   other$chat("something else entirely")

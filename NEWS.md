@@ -95,6 +95,19 @@
   in place of a table it cannot build, where it used to show an empty table,
   and marks token totals that are unavailable or incomplete.
 
+- `archive_agent_study()` reports the files it could not write: the result
+  adds `write_failures`, a table of file and error, and one warning ("Some
+  archive files could not be produced.") lists them. A failed file is removed
+  rather than left in place. The function used to write `manifest.json` as
+  `[]` when the manifest could not be built, write an empty table for a level
+  it could not read, drop a failed `events.jsonl` without notice, and list
+  `hashes.sha256` and print "sealed by hashes.sha256" even when the seal had
+  not been written. The seal is now listed only when written, over the final
+  bytes of every listed file; `README-methods.md` says when the call records
+  could not be read; and `n_calls` is `NA` in that case, where it used to be
+  0. Two conditions are errors: a destination directory that cannot be
+  created, and a failed output that cannot be removed.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and

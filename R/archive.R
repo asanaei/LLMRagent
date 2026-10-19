@@ -10,8 +10,10 @@
 # call read back from the archive still matches the same call issued live; that
 # is why redaction never touches a hash, and why the verbatim audit log is
 # copied byte-for-byte rather than reserialized. Second, an archive should
-# survive a partial run: every level extraction is guarded, so a study that
-# failed halfway still seals what it has.
+# survive a partial run: every file is written in its own guarded step, so a
+# study that failed halfway still seals what it has, and every file that could
+# not be produced is removed and reported in `write_failures` rather than left
+# in place or replaced by an empty stand-in.
 
 #' Seal an agent study to a directory
 #'
@@ -30,6 +32,7 @@
 #' formats. Live agents, callers, tool functions, model configurations, and
 #' configuration secrets are never serialized into the archive. Message
 #' omission and redaction apply to this snapshot as well as the text files.
+#' They do not reach the manifest, artifacts, or error messages.
 #'
 #' Hashes are identity, not outcome. The `request_hash` in `calls.jsonl` is
 #' computed over the original request, so a call read back from the archive
@@ -49,17 +52,30 @@
 #' privacy lever cannot be applied, the copied records are removed and
 #' `calls.jsonl` is not written.
 #'
+#' Each file is written in its own step. A file that cannot be produced is
+#' removed, recorded in `write_failures`, and reported in one warning at the
+#' end; the rest of the archive is still written. A level of the run that
+#' cannot be read is not written as an empty table (a level that is readable
+#' and empty is), `run.rds` is omitted when any of its levels cannot be read,
+#' and no `manifest.json` is written when the manifest cannot be built. The
+#' seal is written last, over the final bytes of every other listed file, and
+#' is listed only when it was written; the methods note lists it only then.
+#' A partial archive is still sealed. A checksum identifies bytes; it does not
+#' establish that the run's record is complete. A destination directory that
+#' cannot be created, or a failed file that cannot be removed, is an error.
+#'
 #' @param run An object accepted by [as_agent_run()] (an [Agent], a conversation
 #'   or preset result, a pipeline, an experiment, or an `agent_run`).
 #' @param path Directory to write into; created (recursively) if absent.
 #' @param overwrite If `FALSE` (default), refuse a non-empty `path`. Set to
-#'   `TRUE` to replace archive files in an existing directory.
+#'   `TRUE` to replace archive files in an existing directory; other files in
+#'   it are left alone.
 #' @param include_messages If `TRUE` (default), write the transcript and the
 #'   free-text columns of the tool and state tables. If `FALSE`, those tables
-#'   are still written but their free-text columns are blanked, keeping only
-#'   structure, hashes, and metadata; the records in `calls.jsonl` likewise
-#'   omit the request body and reply text (each record keeps its precomputed
-#'   `request_hash`, so the join invariant holds).
+#'   are still written but their free-text columns are replaced by
+#'   `"[OMITTED]"`, keeping only structure, hashes, and metadata; the records in
+#'   `calls.jsonl` likewise omit the request body and reply text (each record
+#'   keeps its precomputed `request_hash`, so the join invariant holds).
 #' @param redact Optional redaction applied to the free-text columns of the
 #'   written transcript, tool, and state tables (`text`, `content`, `arguments`,
 #'   `result`, `response_text`) and to the reply text of the records in
@@ -73,12 +89,24 @@
 #'   privacy-filtered, data-only run snapshot as `run.rds`). Defaults to all
 #'   three.
 #' @return Invisibly, an object of class `agent_archive`: a list with `path`,
-#'   `files` (relative paths written), `manifest_hash`, and `n_calls`. Print
-#'   lists what was written and confirms the seal.
+#'   `files` (relative paths written), `manifest_hash` (`NA` when the manifest
+#'   could not be built), `n_calls` (`NA` when the call records could not be
+#'   read), `calls_source` (where `calls.jsonl` came from, or `"none"`),
+#'   `llm_log_compatible` (whether `calls.jsonl` is an LLMR audit log), and
+#'   `write_failures` (a tibble with columns `file` and `error`, with no rows
+#'   when every file was written). Print lists what was written and whether
+#'   it was sealed.
 #' @seealso [agent_manifest()], [as_agent_run()], [LLMR::llm_log_read()]
 #' @examples
+#' a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"), quiet = TRUE)
+#' a$memory$add("user", "Hello")
+#' dir <- file.path(tempdir(), "aria-study")
+#' arch <- archive_agent_study(a, dir, include_messages = FALSE)
+#' arch
+#' arch$write_failures
+#' unlink(dir, recursive = TRUE)
+#'
 #' \dontrun{
-#' a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"))
 #' a$chat("Hello")
 #' archive_agent_study(a, tempfile("study_"))
 #' }
@@ -94,54 +122,66 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
          call. = FALSE)
   }
   formats <- match.arg(formats, several.ok = TRUE)
-  dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(path) && !dir.create(path, recursive = TRUE, showWarnings = FALSE)) {
+    stop("The archive directory could not be created: ", path, call. = FALSE)
+  }
   r <- as_agent_run(run)
 
   redactor <- .make_redactor(redact)
   files <- character(0)
 
-  # A guarded level extraction: a partial or malformed run still seals what it
-  # has, with an empty frame standing in for a level that could not be built.
-  lvl <- function(level) tryCatch(
-    tibble::as_tibble(as_tibble(r, level = level)),
-    error = function(e) tibble::tibble())
+  write_failures <- tibble::tibble(file = character(), error = character())
+  write_step <- function(file, expr) {
+    dest <- file.path(path, file)
+    # Remove an older destination before writing so success describes this write.
+    .remove_archive_output(dest)
+    out <- tryCatch({
+      value <- force(expr)
+      if (!file.exists(dest) || dir.exists(dest)) stop("The writer did not produce a file.")
+      list(ok = TRUE, value = value)
+    }, error = function(e) list(ok = FALSE, error = conditionMessage(e)))
+    if (out$ok) {
+      files <<- unique(c(files, file))
+      return(out$value)
+    }
+    .remove_archive_output(dest)
+    files <<- setdiff(files, file)
+    write_failures <<- rbind(write_failures,
+      tibble::tibble(file = file, error = out$error))
+    NULL
+  }
+  extracted <- lapply(c("utterance", "event", "call", "tool", "state"), function(level)
+    .read_run_level(r, level, warn = FALSE))
+  names(extracted) <- c("utterance", "event", "call", "tool", "state")
+  archive_levels <- lapply(names(extracted), function(level) {
+    out <- extracted[[level]]
+    if (!is.null(out$error)) return(out)
+    tryCatch(list(data = if (level == "event") out$data else
+      .redact_cols(out$data, redactor, include_messages), error = NULL),
+      error = function(e) list(data = NULL, error = conditionMessage(e)))
+  })
+  names(archive_levels) <- names(extracted)
+  lvl <- function(level) {
+    out <- archive_levels[[level]]
+    if (!is.null(out$error)) stop(out$error, call. = FALSE)
+    out$data
+  }
 
-  # These projections are the archive's data boundary. They contain no live
-  # agents, configs, tool functions, callers, or span metadata, and the same
-  # privacy policy is applied to their free text in every output format.
-  archive_levels <- list(
-    utterance = .redact_cols(lvl("utterance"), redactor, include_messages),
-    event = lvl("event"),
-    call = .redact_cols(lvl("call"), redactor, include_messages),
-    tool = .redact_cols(lvl("tool"), redactor, include_messages),
-    state = .redact_cols(lvl("state"), redactor, include_messages))
-
-  # ---- manifest.json (declared specification; tibbles -> data.frames) --------
-  man <- tryCatch(agent_manifest(r), error = function(e) NULL)
-  manifest_hash <- man$manifest_hash %||% NA_character_
-  files <- c(files, tryCatch({
-    body <- if (is.null(man)) list() else lapply(unclass(man), function(el)
-      if (inherits(el, "tbl_df") || is.data.frame(el)) as.data.frame(el) else el)
+  man <- NULL
+  write_step("manifest.json", {
+    man <- agent_manifest(r)
+    body <- lapply(unclass(man), function(el)
+      if (is.data.frame(el)) as.data.frame(el) else el)
     txt <- jsonlite::toJSON(body, auto_unbox = TRUE, pretty = TRUE,
                             null = "null", na = "null")
     .write_lines(as.character(txt), file.path(path, "manifest.json"))
-    "manifest.json"
-  }, error = function(e) character(0)))
-
-  # ---- transcript.csv (analysis grain) --------------------------------------
+  })
+  manifest_hash <- man$manifest_hash %||% NA_character_
   if ("csv" %in% formats) {
-    files <- c(files, tryCatch({
-      utils::write.csv(archive_levels$utterance,
-                       file.path(path, "transcript.csv"), row.names = FALSE)
-      "transcript.csv"
-    }, error = function(e) character(0)))
+    write_step("transcript.csv", utils::write.csv(lvl("utterance"),
+      file.path(path, "transcript.csv"), row.names = FALSE))
   }
-
-  # ---- events.jsonl (every span, one JSON object per line) ------------------
-  files <- c(files, tryCatch({
-    .write_jsonl(archive_levels$event, file.path(path, "events.jsonl"))
-    "events.jsonl"
-  }, error = function(e) character(0)))
+  write_step("events.jsonl", .write_jsonl(lvl("event"), file.path(path, "events.jsonl")))
 
   # ---- calls.jsonl (per-call provenance; a true LLMR audit log) -------------
   # Always a file LLMR::llm_log_read() can parse. When a live audit log was
@@ -152,15 +192,16 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
   # usage, and the reply) are rendered into the same audit-record schema, so
   # the request body is real, not reconstructed. The whole live log is never
   # copied: it can hold other studies' calls.
-  calls_source <- tryCatch({
+  calls_source <- write_step("calls.jsonl", {
+    calls <- lvl("call")
     dest <- file.path(path, "calls.jsonl")
     log <- r$llmr_log
     if (!is.null(log) && length(log) == 1L && !is.na(log) && file.exists(log)) {
       run_hashes <- tryCatch(
-        stats::na.omit(archive_levels$call$request_hash),
+        stats::na.omit(calls$request_hash),
         error = function(e) character(0))
       run_ids <- tryCatch(
-        stats::na.omit(archive_levels$call$response_id),
+        stats::na.omit(calls$response_id),
         error = function(e) character(0))
       n_kept <- if (length(run_hashes)) {
         .filter_log_to_hashes(log, dest, run_hashes, run_ids)
@@ -199,72 +240,61 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
       .write_audit_calls(r, dest, include_messages = include_messages,
                          redactor = redactor)
     }
-  }, error = function(e) {
-    warning("calls.jsonl was not written: ", conditionMessage(e), call. = FALSE)
-    "none"
-  })
-  if (!identical(calls_source, "none")) files <- c(files, "calls.jsonl")
+  }) %||% "none"
 
-  # ---- tools.csv / state.csv (governed tool calls; agent memory at end) -----
   if ("csv" %in% formats) {
-    files <- c(files, tryCatch({
-      utils::write.csv(archive_levels$tool, file.path(path, "tools.csv"),
-                       row.names = FALSE)
-      "tools.csv"
-    }, error = function(e) character(0)))
-    files <- c(files, tryCatch({
-      utils::write.csv(archive_levels$state, file.path(path, "state.csv"),
-                       row.names = FALSE)
-      "state.csv"
-    }, error = function(e) character(0)))
+    write_step("tools.csv", utils::write.csv(lvl("tool"),
+      file.path(path, "tools.csv"), row.names = FALSE))
+    write_step("state.csv", utils::write.csv(lvl("state"),
+      file.path(path, "state.csv"), row.names = FALSE))
   }
-
-  # ---- run.rds (privacy-filtered data snapshot, never the live run) ----------
   if ("rds" %in% formats) {
-    files <- c(files, tryCatch({
+    write_step("run.rds", {
+      views <- lapply(names(archive_levels), lvl)
+      names(views) <- names(archive_levels)
       snapshot <- structure(c(list(
-        schema = "llmragent_archive_run/1",
-        run_id = r$run_id,
-        kind = r$kind,
-        created_at = r$created_at,
-        manifest_hash = manifest_hash,
-        participants = tibble::as_tibble(r$participants),
-        pkg_versions = r$pkg_versions), archive_levels),
-        class = "agent_archive_run")
+        schema = "llmragent_archive_run/1", run_id = r$run_id, kind = r$kind,
+        created_at = r$created_at, manifest_hash = manifest_hash,
+        participants = tibble::as_tibble(r$participants), pkg_versions = r$pkg_versions),
+        views), class = "agent_archive_run")
       saveRDS(snapshot, file.path(path, "run.rds"))
-      "run.rds"
-    }, error = function(e) character(0)))
+    })
   }
-
-  # ---- artifacts/ (kind-specific products) ----------------------------------
-  files <- c(files, tryCatch(.write_artifacts(r$artifacts %||% list(), path),
-                             error = function(e) character(0)))
-
-  # ---- README-methods.md (design header + drafted methods + file list) ------
-  files <- c(files, tryCatch({
-    .write_readme(r, man, files, file.path(path, "README-methods.md"))
-    "README-methods.md"
-  }, error = function(e) character(0)))
-
-  # ---- hashes.sha256 (seal: one line per file, sha256sum format) ------------
-  # Written last so it can hash every other file; it cannot hash itself.
-  files <- unique(files)
-  tryCatch({
+  .write_artifacts(r$artifacts %||% list(), path, write_step)
+  readme <- "README-methods.md"
+  write_step(readme, .write_readme(r, man, unique(c(files, readme, "hashes.sha256")),
+                                  file.path(path, readme), extracted$call))
+  write_step("hashes.sha256", {
     lines <- vapply(files, function(rel) {
-      sprintf("%s  %s", .file_sha256(file.path(path, rel)), rel)
+      hash <- .file_sha256(file.path(path, rel))
+      if (length(hash) != 1L || is.na(hash) || !grepl("^[0-9a-f]{64}$", hash)) {
+        stop("Invalid checksum for '", rel, "'.", call. = FALSE)
+      }
+      sprintf("%s  %s", hash, rel)
     }, character(1), USE.NAMES = FALSE)
     .write_lines(lines, file.path(path, "hashes.sha256"))
-  }, error = function(e) NULL)
-  files <- c(files, "hashes.sha256")
-
-  n_calls <- nrow(archive_levels$call)
-
-  structure(
-    list(path = path, files = files,
-         manifest_hash = manifest_hash, n_calls = as.integer(n_calls),
+  })
+  if (!"hashes.sha256" %in% files && readme %in% files) {
+    write_step(readme, .write_readme(r, man, files, file.path(path, readme), extracted$call))
+  }
+  if (nrow(write_failures)) warning(
+    "Some archive files could not be produced.\n",
+    paste0("  ", write_failures$file, ": ", write_failures$error, collapse = "\n"),
+    call. = FALSE)
+  invisible(structure(
+    list(path = path, files = files, manifest_hash = manifest_hash,
+         n_calls = if (is.null(extracted$call$error)) as.integer(nrow(extracted$call$data)) else NA_integer_,
          calls_source = calls_source,
-         llm_log_compatible = calls_source %in% c("live_llmr_log", "audit_from_spans")),
-    class = "agent_archive")
+         llm_log_compatible = calls_source %in% c("live_llmr_log", "audit_from_spans"),
+         write_failures = write_failures),
+    class = "agent_archive"))
+}
+
+.remove_archive_output <- function(file) {
+  if (file.exists(file) && (unlink(file) != 0L || file.exists(file))) {
+    stop("The failed archive output could not be removed: ", file, call. = FALSE)
+  }
+  invisible(NULL)
 }
 
 # ---- redaction --------------------------------------------------------------
@@ -382,14 +412,11 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
 #' @keywords internal
 #' @noRd
 .privacy_scrub_log <- function(dest, include_messages = TRUE, redactor = NULL) {
-  parsed <- tryCatch(LLMR::llm_log_read(dest), error = function(e) e)
-  if (inherits(parsed, "error")) {
-    # Never leave an unscrubbed copy behind when the privacy options were asked for.
-    unlink(dest)
-    stop("the privacy options could not be applied (", conditionMessage(parsed),
-         "), so the copied call records were removed", call. = FALSE)
-  }
-  if (!length(parsed$records)) return(invisible(dest))
+  completed <- FALSE
+  on.exit(if (!completed) .remove_archive_output(dest), add = TRUE)
+  tryCatch({
+  parsed <- LLMR::llm_log_read(dest)
+  if (!length(parsed$records)) { completed <- TRUE; return(invisible(dest)) }
   man <- parsed$manifest
   lines <- vapply(seq_along(parsed$records), function(i) {
     rec <- parsed$records[[i]]$rec
@@ -406,7 +433,10 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
                                   na = "null"))
   }, character(1))
   .write_lines(lines, dest)
+  completed <- TRUE
   invisible(dest)
+  }, error = function(e) stop("the privacy options could not be applied (",
+      conditionMessage(e), "), so the copied call records were removed", call. = FALSE))
 }
 
 # Render a run's per-call spans into the LLMR audit-log record schema, one JSON
@@ -527,38 +557,31 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
 # Returns the relative paths written (under artifacts/).
 #' @keywords internal
 #' @noRd
-.write_artifacts <- function(artifacts, path) {
-  if (!length(artifacts)) return(character(0))
-  adir <- file.path(path, "artifacts")
-  dir.create(adir, recursive = TRUE, showWarnings = FALSE)
-  nms <- names(artifacts)
-  if (is.null(nms)) nms <- paste0("artifact_", seq_along(artifacts))
-  written <- character(0)
+.write_artifacts <- function(artifacts, path, write_step) {
+  nms <- names(artifacts) %||% rep("", length(artifacts))
   for (i in seq_along(artifacts)) {
-    nm <- if (nzchar(nms[i])) nms[i] else paste0("artifact_", i)
+    nm <- if (!is.na(nms[i]) && nzchar(nms[i])) nms[i] else paste0("artifact_", i)
     safe <- gsub("[^A-Za-z0-9._-]+", "_", nm)
     el <- artifacts[[i]]
-    rel <- tryCatch({
+    rel <- file.path("artifacts", paste0(safe, if (is.data.frame(el)) ".csv" else ".json"))
+    write_step(rel, {
+      dir.create(file.path(path, "artifacts"), recursive = TRUE, showWarnings = FALSE)
       if (is.data.frame(el)) {
-        utils::write.csv(el, file.path(adir, paste0(safe, ".csv")), row.names = FALSE)
-        file.path("artifacts", paste0(safe, ".csv"))
+        utils::write.csv(el, file.path(path, rel), row.names = FALSE)
       } else {
-        txt <- jsonlite::toJSON(el, auto_unbox = TRUE, pretty = TRUE,
-                                null = "null", na = "null")
-        .write_lines(as.character(txt), file.path(adir, paste0(safe, ".json")))
-        file.path("artifacts", paste0(safe, ".json"))
+        txt <- jsonlite::toJSON(el, auto_unbox = TRUE, pretty = TRUE, null = "null", na = "null")
+        .write_lines(as.character(txt), file.path(path, rel))
       }
-    }, error = function(e) character(0))
-    written <- c(written, rel)
+    })
   }
-  written
+  invisible(NULL)
 }
 
 # Compose README-methods.md: a design header, the drafted methods paragraph,
 # and the list of files in the archive.
 #' @keywords internal
 #' @noRd
-.write_readme <- function(r, man, files, file) {
+.write_readme <- function(r, man, files, file, extracted = .read_run_level(r, "call")) {
   agents <- stats::na.omit(as.character(r$participants$name %||% character(0)))
   short_hash <- if (!is.null(man)) substr(man$manifest_hash, 1L, 12L) else "unknown"
 
@@ -576,18 +599,10 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
     ""
   )
 
-  calls <- tryCatch(tibble::as_tibble(as_tibble(r, level = "call")),
-                    error = function(e) NULL)
-  methods <- if (!is.null(calls)) {
-    class(calls) <- unique(c("llmr_experiment", class(calls)))
-    tryCatch(LLMR::report(calls),
-             error = function(e) "Methods paragraph unavailable (no call records).")
-  } else {
-    "Methods paragraph unavailable (no call records)."
-  }
+  methods <- .run_methods(extracted)
 
   file_list <- c("", "## Files in this archive", "",
-                 paste0("- ", c(files, "hashes.sha256")))
+                 paste0("- ", files))
 
   .write_lines(c(header, methods, file_list), file)
   invisible(file)
@@ -600,14 +615,23 @@ archive_agent_study <- function(run, path, include_messages = TRUE,
 #' @keywords internal
 #' @noRd
 .file_sha256 <- function(f) {
-  if (!file.exists(f)) return(NA_character_)
-  sz <- file.size(f)
-  raw <- if (is.na(sz) || sz == 0) raw(0) else readBin(f, "raw", n = sz)
-  digest::digest(raw, algo = "sha256", serialize = FALSE)
+  tryCatch({
+    if (!file.exists(f) || dir.exists(f)) stop("file is missing or is not a regular file")
+    if (file.access(f, 4L) != 0L) stop("file is not readable")
+    sz <- file.size(f)
+    if (is.na(sz)) stop("file size is unavailable")
+    bytes <- readBin(f, "raw", n = sz)
+    if (length(bytes) != sz) stop("file could not be read completely")
+    digest::digest(bytes, algo = "sha256", serialize = FALSE)
+  }, error = function(e) stop(sprintf("The checksum for '%s' could not be computed: %s",
+                                     f, conditionMessage(e)), call. = FALSE))
 }
 
 # ---- print ------------------------------------------------------------------
 
+#' @rdname archive_agent_study
+#' @param x An `agent_archive`.
+#' @param ... Unused.
 #' @export
 print.agent_archive <- function(x, ...) {
   cat(sprintf("<agent_archive | %d file(s) | %d call(s)>\n",
@@ -620,6 +644,8 @@ print.agent_archive <- function(x, ...) {
     cat("  files:\n")
     for (f in x$files) cat("    - ", f, "\n", sep = "")
   }
-  cat("  sealed by hashes.sha256 (SHA-256 over each file's bytes)\n")
+  if ("hashes.sha256" %in% x$files) {
+    cat("  sealed by hashes.sha256 (SHA-256 over each file's bytes)\n")
+  } else cat("  No checksum file was produced.\n")
   invisible(x)
 }
