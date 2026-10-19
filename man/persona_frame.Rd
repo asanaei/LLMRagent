@@ -69,11 +69,9 @@ p <- persona_frame(
   scope = list(country = "US"))
 print(p)
 as.character(p)            # the brief, usable wherever a string persona is
-\dontrun{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b")
 a <- agent("Voter", cfg, persona = p)   # the frame is accepted directly
 a$persona_frame()$hash                  # provenance is preserved
-}
 }
 \seealso{
 \code{\link[=persona_variants]{persona_variants()}}, \code{\link[=persona_audit]{persona_audit()}}, \code{\link[=hash_persona]{hash_persona()}}, \code{\link[=agent]{agent()}}

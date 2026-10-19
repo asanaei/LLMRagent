@@ -77,7 +77,6 @@ hashes are recorded.
 }
 }
 \examples{
-\dontrun{
 # offline, via a fake transport returning canned JSON-RPC
 fake <- function(method, params) {
   if (method == "tools/list") list(tools = list(list(
@@ -87,7 +86,6 @@ fake <- function(method, params) {
   else list(content = list(list(type = "text", text = "result")))
 }
 tools <- mcp_tools(list(url = "http://localhost:9000"), transport = fake)
-}
 }
 \seealso{
 \code{\link[=agent]{agent()}}, \code{\link[=agent_tool]{agent_tool()}}, \code{\link[=human_gate]{human_gate()}}

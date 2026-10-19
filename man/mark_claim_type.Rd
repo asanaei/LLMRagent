@@ -26,11 +26,11 @@ scoped or refused. None of these types turns model output into a population
 estimate.
 }
 \examples{
-\dontrun{
-run <- as_agent_run(my_deliberation)
+a <- agent("Aria", LLMR::llm_config("groq", "openai/gpt-oss-20b"),
+           quiet = TRUE)
+run <- as_agent_run(a)
 run <- mark_claim_type(run, "theory_probe")
 report(run)   # prose is scoped to a theory probe, not a population claim
-}
 }
 \seealso{
 \code{\link[=report]{report()}}

@@ -57,7 +57,6 @@
 #' @return A list of `llmr_tool` objects, each carrying MCP governance metadata.
 #' @seealso [agent()], [agent_tool()], [human_gate()]
 #' @examples
-#' \dontrun{
 #' # offline, via a fake transport returning canned JSON-RPC
 #' fake <- function(method, params) {
 #'   if (method == "tools/list") list(tools = list(list(
@@ -67,7 +66,6 @@
 #'   else list(content = list(list(type = "text", text = "result")))
 #' }
 #' tools <- mcp_tools(list(url = "http://localhost:9000"), transport = fake)
-#' }
 #' @export
 mcp_tools <- function(config,
                       policy = c("read_only", "read_write"),
