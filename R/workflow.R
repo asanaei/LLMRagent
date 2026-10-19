@@ -5,9 +5,11 @@
 # nodes. A checkpoint (an RDS state snapshot + an append-only JSONL event line)
 # is written after every node, so a run can resume without rerunning completed
 # nodes, fork at a snapshot, and replay with state-hash verification. The
-# existing pipeline()/conversation() are EXPRESSIBLE as workflows (constructors
-# below) but keep their own implementations as the simpler interface: nobody is
-# pushed onto the graph for a simple study.
+# cursor records whether the run stopped at a node or while choosing the edge
+# after one, so a failed edge predicate is retried without repeating the node.
+# The existing pipeline()/conversation() are EXPRESSIBLE as workflows
+# (constructors below) but keep their own implementations as the simpler
+# interface: nobody is pushed onto the graph for a simple study.
 
 # ---- construction -----------------------------------------------------------
 
@@ -81,15 +83,22 @@ add_node <- function(wf, name, node, input_key = "input", output_key = NULL,
 #'
 #' Connects two nodes. With `when = NULL` the edge is unconditional; with a
 #' predicate `when = function(state) -> logical` it is taken only when the
-#' predicate holds. After a node, the runtime takes the first outgoing edge whose
-#' predicate is `TRUE` (or the unconditional edge). A back-edge forms a loop,
-#' bounded by `max_steps` in [run_workflow()].
+#' predicate returns `TRUE` (a `FALSE`, an `NA`, or any other value leaves the
+#' edge untaken). After a node, the runtime takes the first outgoing edge, in
+#' the order the edges were added, whose predicate holds or that is
+#' unconditional. A back-edge forms a loop, bounded by `max_steps` in
+#' [run_workflow()].
+#'
+#' A predicate that raises an error ends the run with status `"failed"`; the
+#' error, naming the edge, is returned in the run's `error` field and recorded
+#' in its event log, and no later edge is tried. [resume_workflow()] retries
+#' the edge selection after the predicate has been repaired.
 #'
 #' @param wf An `agent_workflow`.
 #' @param from,to Node names.
 #' @param when Optional `function(state) -> logical`.
 #' @return The workflow, with the edge added.
-#' @seealso [add_node()], [run_workflow()]
+#' @seealso [add_node()], [run_workflow()], [resume_workflow()]
 #' @export
 add_edge <- function(wf, from, to, when = NULL) {
   stopifnot(inherits(wf, "agent_workflow"))
@@ -117,7 +126,12 @@ print.agent_workflow <- function(x, ...) {
 #' Executes the graph from its entry node, threading one explicit `state` list,
 #' writing a checkpoint (state snapshot + event line) after each node. Stops at a
 #' terminal node (no outgoing edge taken), when a human gate pauses the run, or
-#' when `max_steps` node executions is reached.
+#' when a node or an edge predicate raises an error, which ends the run as
+#' `"failed"`. Exceeding `max_steps` raises `llmragent_workflow_error`.
+#'
+#' When an edge predicate fails, the node before it has completed and its
+#' state is saved; the event log records the failed edge separately from the
+#' node visits, and [resume_workflow()] retries only the edge selection.
 #'
 #' @param wf An `agent_workflow`.
 #' @param input The initial input, placed at `state$input`.
@@ -125,12 +139,14 @@ print.agent_workflow <- function(x, ...) {
 #' @param checkpoint_dir Optional directory for checkpoints (state RDS + a
 #'   `run.jsonl` event log + a `cursor.json`). When `NULL`, a temporary directory
 #'   is used so resume/replay still work within the session.
-#' @param max_steps Maximum node executions before stopping (loop guard).
+#' @param max_steps Maximum number of steps, counting visits to human gates
+#'   (loop guard).
 #' @param quiet If `FALSE`, print one line per node.
 #' @param ... Passed to agent nodes' `reply()`.
 #' @return An object of class `agent_workflow_run`: a list with `status`
 #'   (`"done"`, `"paused"`, or `"failed"`), `state`, `checkpoint_dir`, `steps`
-#'   (a tibble of node/status/state_hash), and (when paused) `checkpoint`.
+#'   (a tibble of node/status/state_hash for the nodes visited in this call),
+#'   (when paused) `checkpoint`, and (when failed) `error`, the error message.
 #' @seealso [resume_workflow()], [fork_workflow()], [replay_run()]
 #' @export
 run_workflow <- function(wf, input = NULL, state = NULL, checkpoint_dir = NULL,
@@ -153,9 +169,15 @@ run_workflow <- function(wf, input = NULL, state = NULL, checkpoint_dir = NULL,
 # The driver: execute nodes following edges until terminal / paused / budget.
 #' @keywords internal
 #' @noRd
-.wf_drive <- function(wf, st, dir, run_id, node, step, max_steps, quiet, ...) {
+.wf_drive <- function(wf, st, dir, run_id, node, step, max_steps, quiet,
+                      phase = "node", ...) {
   steps <- list()
-  cur <- node
+  cur <- node %||% NA_character_
+  if (identical(phase, "edge")) {
+    tr <- .wf_transition(wf, cur, st, dir, run_id, step, steps, max_steps)
+    if (!is.null(tr$result)) return(tr$result)
+    cur <- tr$next_node
+  }
   while (!is.na(cur)) {
     step <- step + 1L
     if (step > max_steps) {
@@ -166,33 +188,22 @@ run_workflow <- function(wf, input = NULL, state = NULL, checkpoint_dir = NULL,
     nd <- wf$nodes[[cur]]
     if (is.null(nd)) stop("Edge points to unknown node: ", cur, call. = FALSE)
 
-    # human gate: pause and return a resumable checkpoint
     if (identical(nd$kind, "human_gate")) {
-      cp <- structure(list(
-        schema = "llmragent_wf_checkpoint/1", run_id = run_id, wf = wf,
-        state = st, next_node = .wf_next(wf, cur, st), gate = nd$name,
-        prompt = nd$node$prompt, dir = dir, step = step, max_steps = max_steps,
-        decision = NULL, created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")),
-        class = "llmragent_wf_checkpoint")
       .wf_save_state(dir, step, cur, st)
-      .wf_log(dir, run_id, cur, "paused", LLMR::llm_hash(st), step)
-      .wf_cursor(dir, run_id, .wf_next(wf, cur, st), step, "paused")
-      steps[[length(steps) + 1L]] <- list(node = cur, status = "paused",
-                                          state_hash = LLMR::llm_hash(st))
-      return(.wf_result("paused", st, dir, steps, checkpoint = cp))
+      tr <- .wf_transition(wf, cur, st, dir, run_id, step, steps, max_steps,
+                            gate_visit = TRUE)
+      return(tr$result)
     }
-
-    out <- tryCatch(.wf_exec_node(nd, st, ...),
-                    error = function(e) structure(list(err = conditionMessage(e)),
-                                                  class = "wf_node_error"))
-    if (inherits(out, "wf_node_error")) {
+    out <- tryCatch(.wf_exec_node(nd, st, ...), error = identity)
+    if (inherits(out, "error")) {
       .wf_save_state(dir, step, cur, st)
-      .wf_log(dir, run_id, cur, "failed", LLMR::llm_hash(st), step, note = out$err)
-      .wf_cursor(dir, run_id, cur, step, "failed")
+      .wf_log(dir, run_id, cur, "failed", LLMR::llm_hash(st), step,
+              note = conditionMessage(out))
+      .wf_cursor(dir, run_id, cur, step, "failed", source = cur)
       steps[[length(steps) + 1L]] <- list(node = cur, status = "failed",
                                           state_hash = LLMR::llm_hash(st))
       res <- .wf_result("failed", st, dir, steps)
-      res$error <- out$err
+      res$error <- conditionMessage(out)
       return(res)
     }
     st <- out
@@ -201,10 +212,49 @@ run_workflow <- function(wf, input = NULL, state = NULL, checkpoint_dir = NULL,
     .wf_log(dir, run_id, cur, "ok", sh, step)
     steps[[length(steps) + 1L]] <- list(node = cur, status = "ok", state_hash = sh)
     if (!quiet) cli::cli_text("{.strong [wf:{cur}]} done")
-    cur <- .wf_next(wf, cur, st)
+    tr <- .wf_transition(wf, cur, st, dir, run_id, step, steps, max_steps)
+    if (!is.null(tr$result)) return(tr$result)
+    cur <- tr$next_node
   }
-  .wf_cursor(dir, run_id, NA_character_, step, "done")
+  .wf_cursor(dir, run_id, NA_character_, step, "done", phase = "done")
   .wf_result("done", st, dir, steps)
+}
+
+# Select once, then use the selected node for both checkpoint and cursor.
+.wf_transition <- function(wf, cur, st, dir, run_id, step, steps, max_steps,
+                           gate_visit = FALSE) {
+  gate <- identical(wf$nodes[[cur]]$kind, "human_gate")
+  sh <- LLMR::llm_hash(st)
+  next_node <- tryCatch(.wf_next(wf, cur, st),
+    llmragent_workflow_predicate_error = identity)
+  if (inherits(next_node, "llmragent_workflow_predicate_error")) {
+    if (gate && gate_visit) {
+      .wf_log(dir, run_id, cur, "ok", sh, step)
+      steps[[length(steps) + 1L]] <- list(node = cur, status = "ok", state_hash = sh)
+    }
+    .wf_log(dir, run_id, cur, "failed", sh, step,
+            note = conditionMessage(next_node), kind = "workflow_edge",
+            from = next_node$from, to = next_node$to,
+            message = next_node$predicate_message)
+    .wf_cursor(dir, run_id, cur, step, "failed", phase = "edge", source = cur)
+    res <- .wf_result("failed", st, dir, steps)
+    res$error <- conditionMessage(next_node)
+    return(list(result = res))
+  }
+  if (gate) {
+    nd <- wf$nodes[[cur]]
+    cp <- structure(list(
+      schema = "llmragent_wf_checkpoint/1", run_id = run_id, wf = wf,
+      state = st, next_node = next_node, gate = cur, phase = "gate",
+      prompt = nd$node$prompt, dir = dir, step = step, max_steps = max_steps,
+      decision = NULL, created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")),
+      class = "llmragent_wf_checkpoint")
+    .wf_log(dir, run_id, cur, "paused", sh, step)
+    .wf_cursor(dir, run_id, next_node, step, "paused", phase = "gate", source = cur)
+    steps[[length(steps) + 1L]] <- list(node = cur, status = "paused", state_hash = sh)
+    return(list(result = .wf_result("paused", st, dir, steps, checkpoint = cp)))
+  }
+  list(next_node = next_node)
 }
 
 # Execute one node, returning the new state.
@@ -240,7 +290,14 @@ run_workflow <- function(wf, input = NULL, state = NULL, checkpoint_dir = NULL,
   for (i in idx) {
     w <- wf$edge_when[[i]]
     if (is.null(w)) return(wf$edges$to[i])
-    ok <- tryCatch(isTRUE(w(st)), error = function(e) FALSE)
+    ok <- tryCatch(isTRUE(w(st)), error = function(e) {
+      rlang::abort(
+        sprintf("Workflow predicate failed on edge '%s -> %s': %s",
+                cur, wf$edges$to[i], conditionMessage(e)),
+        class = "llmragent_workflow_predicate_error",
+        from = cur, to = wf$edges$to[i], predicate_message = conditionMessage(e),
+        parent = e)
+    })
     if (ok) return(wf$edges$to[i])
   }
   NA_character_
@@ -257,17 +314,23 @@ run_workflow <- function(wf, input = NULL, state = NULL, checkpoint_dir = NULL,
 }
 #' @keywords internal
 #' @noRd
-.wf_log <- function(dir, run_id, node, status, state_hash, step, note = NA_character_) {
+.wf_log <- function(dir, run_id, node, status, state_hash, step, note = NA_character_,
+                    kind = "workflow_node", from = NULL, to = NULL, message = NULL) {
   rec <- list(ts = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"), schema_version = "1.0",
-              kind = "workflow_node", run_id = run_id, node = node, status = status,
+              kind = kind, run_id = run_id, node = node, status = status,
               state_hash = state_hash, step = step, note = note)
+  if (identical(kind, "workflow_edge")) rec <- c(rec, list(from = from, to = to, message = message))
   line <- jsonlite::toJSON(rec, auto_unbox = TRUE, null = "null", na = "null")
   cat(as.character(line), "\n", sep = "", file = file.path(dir, "run.jsonl"), append = TRUE)
 }
 #' @keywords internal
 #' @noRd
-.wf_cursor <- function(dir, run_id, next_node, step, status) {
-  cur <- list(run_id = run_id, next_node = next_node, step = step, status = status)
+.wf_cursor <- function(dir, run_id, next_node, step, status, phase = "node",
+                       source = NULL) {
+  cur <- list(run_id = run_id, next_node = next_node, step = step, status = status,
+              phase = phase, source = source,
+              snapshot = if (!is.null(source))
+                sprintf("%03d_%s.rds", step, .wf_safe(source)) else NULL)
   writeLines(as.character(jsonlite::toJSON(cur, auto_unbox = TRUE, null = "null", na = "null")),
              file.path(dir, "cursor.json"))
 }
@@ -302,28 +365,39 @@ print.agent_workflow_run <- function(x, ...) {
 #'
 #' Continues from the last good checkpoint without rerunning completed nodes. For
 #' a run paused at a human gate, supply `approve = TRUE` to proceed (or `FALSE`
-#' to stop). For a failed run, resume retries from the failed node.
+#' to stop). For a failed run, resume retries from the failed node; when the run
+#' failed in an edge predicate after its node completed, resume retries only
+#' the edge selection, so the node (and any model call it made) is not
+#' repeated. Pass the repaired workflow as `wf`. A gate whose edge selection
+#' failed pauses again once repaired, and still needs approval.
+#'
+#' Restoring the saved state does not undo what a failed node did outside the
+#' workflow. Checkpoint directories written by earlier versions resume from
+#' the failed node, as they did before.
 #'
 #' @param x A paused/failed `agent_workflow_run`, its `checkpoint`, or a
 #'   `checkpoint_dir` path (for a failed run, also pass `wf`).
 #' @param wf The `agent_workflow` (required when `x` is a bare `checkpoint_dir`
 #'   from a failed run, which carries no embedded workflow).
 #' @param approve For a gated pause: `TRUE` to continue past the gate.
-#' @param max_steps Loop guard for the continuation.
+#' @param max_steps Loop guard for the continuation, counting the steps taken
+#'   before it.
 #' @param quiet If `FALSE`, print progress.
 #' @param ... Passed to agent nodes.
-#' @return An `agent_workflow_run`.
+#' @return An `agent_workflow_run` whose `steps` lists the nodes visited in the
+#'   continuation; the checkpoint directory keeps the whole event log.
 #' @seealso [run_workflow()], [fork_workflow()], [replay_run()]
 #' @export
 resume_workflow <- function(x, wf = NULL, approve = TRUE, max_steps = 64L,
                             quiet = TRUE, ...) {
   cp <- .wf_resume_checkpoint(x, wf)
-  if (!approve) {
+  if (!approve && !identical(cp$phase, "edge")) {
     cli::cli_text("Workflow gate not approved; run remains paused.")
     return(invisible(.wf_result("paused", cp$state, cp$dir, list(), checkpoint = cp)))
   }
   .wf_drive(cp$wf, cp$state, cp$dir, cp$run_id, node = cp$next_node, step = cp$step,
-            max_steps = max_steps, quiet = quiet, ...)
+            max_steps = max_steps, quiet = quiet,
+            phase = if (identical(cp$phase, "edge")) "edge" else "node", ...)
 }
 
 # Resolve a resume target into a checkpoint: a paused checkpoint (carries the
@@ -331,22 +405,43 @@ resume_workflow <- function(x, wf = NULL, approve = TRUE, max_steps = 64L,
 # resumes from the failed node, i.e. the cursor's node).
 #' @keywords internal
 #' @noRd
+.wf_snapshots <- function(dir) {
+  snaps <- list.files(file.path(dir, "state"), pattern = "\\.rds$")
+  snaps[order(as.integer(sub("_.*$", "", snaps)))]
+}
+
 .wf_resume_checkpoint <- function(x, wf) {
-  if (inherits(x, "llmragent_wf_checkpoint")) return(x)
-  if (inherits(x, "agent_workflow_run") && !is.null(x$checkpoint)) return(x$checkpoint)
-  # failed run: reconstruct from the dir + cursor
-  dir <- .wf_dir_of(x)
-  cur <- tryCatch(jsonlite::fromJSON(file.path(dir, "cursor.json")), error = function(e) NULL)
-  if (is.null(cur)) stop("No cursor.json to resume from in ", dir, call. = FALSE)
-  if (is.null(wf)) {
-    stop("Resuming a failed run needs the workflow: resume_workflow(dir, wf = ).", call. = FALSE)
+  cp <- if (inherits(x, "llmragent_wf_checkpoint")) x else
+    if (inherits(x, "agent_workflow_run")) x[["checkpoint"]] else NULL
+  if (!is.null(cp)) {
+    if (!is.null(wf)) cp$wf <- wf
+    return(cp)
   }
-  snaps <- sort(list.files(file.path(dir, "state"), pattern = "\\.rds$"))
-  st <- if (length(snaps)) readRDS(file.path(dir, "state", snaps[length(snaps)])) else list()
-  # failed -> retry from the recorded node; paused -> continue from next_node
-  node <- if (identical(cur$status, "failed")) cur$next_node else cur$next_node
-  structure(list(wf = wf, state = st, next_node = node, dir = dir,
-                 step = (cur$step %||% 1L) - 1L, run_id = cur$run_id),
+  dir <- .wf_dir_of(x)
+  cursor_file <- file.path(dir, "cursor.json")
+  if (!file.exists(cursor_file)) {
+    stop("Cannot resume: no cursor file at ", cursor_file,
+         ". run_workflow() writes it after each step.", call. = FALSE)
+  }
+  cur <- tryCatch(jsonlite::fromJSON(cursor_file), error = function(e) {
+    stop("Cannot resume: the cursor file ", cursor_file, " could not be read (",
+         conditionMessage(e), ").", call. = FALSE)
+  })
+  if (is.null(wf)) {
+    stop("Resuming a saved run needs the workflow: resume_workflow(dir, wf = ).", call. = FALSE)
+  }
+  snaps <- .wf_snapshots(dir)
+  snapshot <- cur$snapshot %||% utils::tail(snaps, 1L)
+  st <- tryCatch({
+    if (!length(snapshot)) stop("no snapshot is available")
+    readRDS(file.path(dir, "state", snapshot))
+  }, error = function(e) stop("The workflow state snapshot could not be read: ",
+                              conditionMessage(e), call. = FALSE))
+  phase <- cur$phase %||% "node"
+  step <- cur$step %||% 1L
+  if (identical(cur$status, "failed") && identical(phase, "node")) step <- step - 1L
+  structure(list(wf = wf, state = st, next_node = cur$next_node %||% NA_character_,
+                 dir = dir, step = step, phase = phase, run_id = cur$run_id),
             class = "llmragent_wf_checkpoint")
 }
 
@@ -363,12 +458,16 @@ resume_workflow <- function(x, wf = NULL, approve = TRUE, max_steps = 64L,
 #' @param mutate Optional `function(state) -> state` applied before running.
 #' @param max_steps,quiet,... As in [run_workflow()].
 #' @return An `agent_workflow_run` for the branch.
+#' @details
+#' A fork at a completed node continues along that node's outgoing edges and
+#' does not run the node again. If an edge predicate fails there, the branch
+#' ends as `"failed"`, with the error recorded in `new_dir`.
 #' @seealso [run_workflow()], [resume_workflow()]
 #' @export
 fork_workflow <- function(x, wf, at = NULL, new_dir = NULL, mutate = NULL,
                           max_steps = 64L, quiet = TRUE, ...) {
   dir <- .wf_dir_of(x)
-  snaps <- sort(list.files(file.path(dir, "state"), pattern = "\\.rds$"))
+  snaps <- .wf_snapshots(dir)
   if (!length(snaps)) stop("No state snapshots to fork from.", call. = FALSE)
   pick <- if (is.null(at)) snaps[length(snaps)] else {
     hit <- snaps[grepl(sprintf("^%03d_", at), snaps)]
@@ -387,7 +486,12 @@ fork_workflow <- function(x, wf, at = NULL, new_dir = NULL, mutate = NULL,
   # Continue from the node AFTER the forked one -- except at step 0: the
   # "entry" snapshot is the state BEFORE any node ran, so a fork there must
   # execute the entry node itself, not skip it.
-  start <- if (step == 0L) wf$entry else .wf_next(wf, nd, st)
+  start <- wf$entry
+  if (step != 0L) {
+    tr <- .wf_transition(wf, nd, st, bdir, run_id, step, list(), max_steps)
+    if (!is.null(tr$result)) return(tr$result)
+    start <- tr$next_node
+  }
   .wf_drive(wf, st, bdir, run_id, node = start, step = step,
             max_steps = max_steps, quiet = quiet, ...)
 }
@@ -425,7 +529,7 @@ replay_run <- function(x, wf, verify = c("structural", "strict"),
   if (!nrow(recorded)) stop("No recorded run to replay.", call. = FALSE)
   # The replay must start from the recorded input; an empty state in its place
   # would replay a different run.
-  snaps <- sort(list.files(file.path(dir, "state"), pattern = "\\.rds$"))
+  snaps <- .wf_snapshots(dir)
   if (!length(snaps)) {
     stop("The recorded run's input state could not be read (no snapshot in ",
          file.path(dir, "state"), "), so it cannot be replayed.", call. = FALSE)
@@ -509,9 +613,11 @@ replay_run <- function(x, wf, verify = c("structural", "strict"),
 #' Builds the linear graph equivalent of [agent_pipeline()] (node i is agent i,
 #' each feeding the next). The original [agent_pipeline()] keeps its own simple
 #' implementation; this exists to show the graph can express it and to let a linear
-#' pipeline gain checkpointing when wanted.
+#' pipeline gain checkpointing when wanted. The first agent reads
+#' `state$input`; the nodes are named `stage_1`, `stage_2`, and so on, and
+#' each writes its reply into the state under its own name.
 #'
-#' @param agents A list of [Agent]s, in order.
+#' @param agents A list of [Agent]s, in order (a single Agent is accepted).
 #' @return An `agent_workflow`.
 #' @seealso [agent_pipeline()], [run_workflow()]
 #' @export
@@ -537,7 +643,7 @@ workflow_from_pipeline <- function(agents) {
 #' @noRd
 .wf_as_checkpoint <- function(x) {
   if (inherits(x, "llmragent_wf_checkpoint")) return(x)
-  if (inherits(x, "agent_workflow_run") && !is.null(x$checkpoint)) return(x$checkpoint)
+  if (inherits(x, "agent_workflow_run") && !is.null(x[["checkpoint"]])) return(x[["checkpoint"]])
   stop("No workflow checkpoint found; pass a paused run or its $checkpoint.", call. = FALSE)
 }
 #' @keywords internal

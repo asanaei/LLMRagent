@@ -108,6 +108,16 @@
   0. Two conditions are errors: a destination directory that cannot be
   created, and a failed output that cannot be removed.
 
+- In a workflow, an edge predicate that raises an error ends the run with
+  status `"failed"`, records the error in `run.jsonl`, and returns it in the
+  run's `error` field, naming the edge. Such a predicate used to count as
+  `FALSE`, so a run could end `"done"` after a broken predicate with nothing
+  recorded. `resume_workflow()` then retries the edge selection without
+  running the completed node again. A predicate that returns `FALSE` or `NA`
+  still leaves its edge untaken. `resume_workflow()`, `fork_workflow()`, and
+  `replay_run()` order state snapshots by step number; they used to sort the
+  file names as text, which misplaced steps beyond 999.
+
 # LLMRagent 0.8.1
 
 - Fixed archive privacy, pre-execution tool guardrails, per-round budgets, and

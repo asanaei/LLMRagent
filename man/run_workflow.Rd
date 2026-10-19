@@ -25,7 +25,8 @@ run_workflow(
 \code{run.jsonl} event log + a \code{cursor.json}). When \code{NULL}, a temporary directory
 is used so resume/replay still work within the session.}
 
-\item{max_steps}{Maximum node executions before stopping (loop guard).}
+\item{max_steps}{Maximum number of steps, counting visits to human gates
+(loop guard).}
 
 \item{quiet}{If \code{FALSE}, print one line per node.}
 
@@ -34,13 +35,20 @@ is used so resume/replay still work within the session.}
 \value{
 An object of class \code{agent_workflow_run}: a list with \code{status}
 (\code{"done"}, \code{"paused"}, or \code{"failed"}), \code{state}, \code{checkpoint_dir}, \code{steps}
-(a tibble of node/status/state_hash), and (when paused) \code{checkpoint}.
+(a tibble of node/status/state_hash for the nodes visited in this call),
+(when paused) \code{checkpoint}, and (when failed) \code{error}, the error message.
 }
 \description{
 Executes the graph from its entry node, threading one explicit \code{state} list,
 writing a checkpoint (state snapshot + event line) after each node. Stops at a
 terminal node (no outgoing edge taken), when a human gate pauses the run, or
-when \code{max_steps} node executions is reached.
+when a node or an edge predicate raises an error, which ends the run as
+\code{"failed"}. Exceeding \code{max_steps} raises \code{llmragent_workflow_error}.
+}
+\details{
+When an edge predicate fails, the node before it has completed and its
+state is saved; the event log records the failed edge separately from the
+node visits, and \code{\link[=resume_workflow]{resume_workflow()}} retries only the edge selection.
 }
 \seealso{
 \code{\link[=resume_workflow]{resume_workflow()}}, \code{\link[=fork_workflow]{fork_workflow()}}, \code{\link[=replay_run]{replay_run()}}

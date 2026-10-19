@@ -7,7 +7,7 @@
 workflow_from_pipeline(agents)
 }
 \arguments{
-\item{agents}{A list of \link{Agent}s, in order.}
+\item{agents}{A list of \link{Agent}s, in order (a single Agent is accepted).}
 }
 \value{
 An \code{agent_workflow}.
@@ -16,7 +16,9 @@ An \code{agent_workflow}.
 Builds the linear graph equivalent of \code{\link[=agent_pipeline]{agent_pipeline()}} (node i is agent i,
 each feeding the next). The original \code{\link[=agent_pipeline]{agent_pipeline()}} keeps its own simple
 implementation; this exists to show the graph can express it and to let a linear
-pipeline gain checkpointing when wanted.
+pipeline gain checkpointing when wanted. The first agent reads
+\code{state$input}; the nodes are named \code{stage_1}, \code{stage_2}, and so on, and
+each writes its reply into the state under its own name.
 }
 \seealso{
 \code{\link[=agent_pipeline]{agent_pipeline()}}, \code{\link[=run_workflow]{run_workflow()}}

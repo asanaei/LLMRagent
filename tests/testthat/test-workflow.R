@@ -1,4 +1,4 @@
-# Stage 4: the workflow runtime. Offline via plain function nodes + fake agents.
+# Offline workflow tests using function nodes and fake agents.
 
 test_that("a linear function-node workflow runs and threads state", {
   wf <- agent_workflow("w") |>
@@ -188,4 +188,14 @@ test_that("replay verifies a LOOPING workflow by sequence position", {
   rp <- replay_run(run, wf, verify = "strict", quiet = TRUE)
   expect_true(all(rp$steps$replay_match %in% c(TRUE, NA)))
   expect_equal(nrow(rp$steps), nrow(run$steps))   # same sequence length
+})
+
+test_that("resuming a directory without a readable cursor names the file", {
+  dir <- tempfile("wf-empty-")
+  dir.create(dir)
+  wf <- agent_workflow("w") |> add_node("a", function(s) s)
+  expect_error(resume_workflow(dir, wf = wf), "no cursor file at .*cursor\\.json")
+  writeLines("{not json", file.path(dir, "cursor.json"))
+  expect_error(resume_workflow(dir, wf = wf), "cursor file .*cursor\\.json could not be read")
+  unlink(dir, recursive = TRUE)
 })

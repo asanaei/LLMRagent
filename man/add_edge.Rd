@@ -19,10 +19,18 @@ The workflow, with the edge added.
 \description{
 Connects two nodes. With \code{when = NULL} the edge is unconditional; with a
 predicate \verb{when = function(state) -> logical} it is taken only when the
-predicate holds. After a node, the runtime takes the first outgoing edge whose
-predicate is \code{TRUE} (or the unconditional edge). A back-edge forms a loop,
-bounded by \code{max_steps} in \code{\link[=run_workflow]{run_workflow()}}.
+predicate returns \code{TRUE} (a \code{FALSE}, an \code{NA}, or any other value leaves the
+edge untaken). After a node, the runtime takes the first outgoing edge, in
+the order the edges were added, whose predicate holds or that is
+unconditional. A back-edge forms a loop, bounded by \code{max_steps} in
+\code{\link[=run_workflow]{run_workflow()}}.
+}
+\details{
+A predicate that raises an error ends the run with status \code{"failed"}; the
+error, naming the edge, is returned in the run's \code{error} field and recorded
+in its event log, and no later edge is tried. \code{\link[=resume_workflow]{resume_workflow()}} retries
+the edge selection after the predicate has been repaired.
 }
 \seealso{
-\code{\link[=add_node]{add_node()}}, \code{\link[=run_workflow]{run_workflow()}}
+\code{\link[=add_node]{add_node()}}, \code{\link[=run_workflow]{run_workflow()}}, \code{\link[=resume_workflow]{resume_workflow()}}
 }

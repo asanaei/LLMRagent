@@ -36,6 +36,11 @@ Copies the state at a chosen step into a new directory with a fresh run id,
 optionally mutating it, and runs forward from there. The original run is
 untouched: resume continues the same run, fork branches a new one.
 }
+\details{
+A fork at a completed node continues along that node's outgoing edges and
+does not run the node again. If an edge predicate fails there, the branch
+ends as \code{"failed"}, with the error recorded in \code{new_dir}.
+}
 \seealso{
 \code{\link[=run_workflow]{run_workflow()}}, \code{\link[=resume_workflow]{resume_workflow()}}
 }

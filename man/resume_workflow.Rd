@@ -22,19 +22,30 @@ from a failed run, which carries no embedded workflow).}
 
 \item{approve}{For a gated pause: \code{TRUE} to continue past the gate.}
 
-\item{max_steps}{Loop guard for the continuation.}
+\item{max_steps}{Loop guard for the continuation, counting the steps taken
+before it.}
 
 \item{quiet}{If \code{FALSE}, print progress.}
 
 \item{...}{Passed to agent nodes.}
 }
 \value{
-An \code{agent_workflow_run}.
+An \code{agent_workflow_run} whose \code{steps} lists the nodes visited in the
+continuation; the checkpoint directory keeps the whole event log.
 }
 \description{
 Continues from the last good checkpoint without rerunning completed nodes. For
 a run paused at a human gate, supply \code{approve = TRUE} to proceed (or \code{FALSE}
-to stop). For a failed run, resume retries from the failed node.
+to stop). For a failed run, resume retries from the failed node; when the run
+failed in an edge predicate after its node completed, resume retries only
+the edge selection, so the node (and any model call it made) is not
+repeated. Pass the repaired workflow as \code{wf}. A gate whose edge selection
+failed pauses again once repaired, and still needs approval.
+}
+\details{
+Restoring the saved state does not undo what a failed node did outside the
+workflow. Checkpoint directories written by earlier versions resume from
+the failed node, as they did before.
 }
 \seealso{
 \code{\link[=run_workflow]{run_workflow()}}, \code{\link[=fork_workflow]{fork_workflow()}}, \code{\link[=replay_run]{replay_run()}}
