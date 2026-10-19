@@ -51,3 +51,49 @@ test_that("a run object without a snapshot keeps the earlier live behavior", {
   f$a$chat("a later message")
   expect_true(any(grepl("a later message", tibble::as_tibble(run, "state")$content)))
 })
+
+test_that("a second conversation, a reset, and delayed archiving leave a run's record intact", {
+  a <- fake_agent("Ana", list("noted", "one", "two", "noted again", "three", "four"))
+  b <- fake_agent("Ben", list("uno", "dos", "tres", "cuatro"))
+  a$config$model_params$temperature <- 0.7
+  a$chat("remember the first study")
+  conv1 <- conversation(list(a, b), topic = "first", max_turns = 2, quiet = TRUE)
+  run1 <- as_agent_run(conv1)
+  m1 <- agent_manifest(run1)
+  s1 <- tibble::as_tibble(run1, "state")
+  expect_true(any(grepl("remember the first study", s1$content)))
+  now <- archive_agent_study(conv1, tempfile("arc-now"))
+
+  # Reuse the agents: more memory, a second conversation, then a reset and a
+  # parameter change.
+  a$chat("between the studies")
+  conv2 <- conversation(list(a, b), topic = "second", max_turns = 2, quiet = TRUE)
+  a$reset()
+  a$config$model_params$temperature <- 0
+  a$tools <- list(echo_tool())
+  expect_identical(nrow(a$transcript()), 0L)
+
+  later <- as_agent_run(conv1)
+  expect_identical(tibble::as_tibble(later, "state"), s1)
+  expect_identical(agent_manifest(later)$manifest_hash, m1$manifest_hash)
+  # The second conversation recorded the memory it closed with, before the reset.
+  s2 <- tibble::as_tibble(as_agent_run(conv2), "state")
+  expect_true(any(grepl("between the studies", s2$content)))
+  expect_false(any(grepl("between the studies", s1$content)))
+
+  # Archiving the first conversation now writes the record it had at close.
+  delayed <- archive_agent_study(conv1, tempfile("arc-later"))
+  for (f in c("manifest.json", "state.csv", "tools.csv", "transcript.csv")) {
+    expect_identical(readLines(file.path(delayed$path, f)),
+                     readLines(file.path(now$path, f)), info = f)
+  }
+  expect_identical(delayed$manifest_hash, now$manifest_hash)
+
+  # A result saved before the agents changed reads back with the same record.
+  path <- tempfile(fileext = ".rds")
+  saveRDS(conv1, path)
+  reread <- as_agent_run(readRDS(path))
+  expect_identical(tibble::as_tibble(reread, "state"), s1)
+  expect_identical(agent_manifest(reread)$manifest_hash, m1$manifest_hash)
+  unlink(c(path, now$path, delayed$path), recursive = TRUE)
+})
