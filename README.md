@@ -22,15 +22,14 @@ an analysis-ready run record.
 ## Install and configure a model
 
 ```r
-# install.packages("remotes")
-remotes::install_github("asanaei/LLMRagent")
+install.packages("LLMRagent")
+# remotes::install_github("asanaei/LLMRagent")
 
 library(LLMRagent)
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b")
 ```
 
-`agent()` accepts any model configuration supported by LLMR. Provider
-credentials remain in the environment rather than in the agent definition.
+`agent()` accepts any model configuration LLMR supports. Keep the key in `~/.Renviron` under LLMR's default variable, here `GROQ_API_KEY`, not in the agent definition. If you have never used an API, follow [Set up a model](https://asanaei.github.io/LLMR/articles/setup.html).
 
 ## Build an agent with explicit limits
 

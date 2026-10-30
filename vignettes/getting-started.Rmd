@@ -16,8 +16,7 @@ knitr::opts_chunk$set(
 
 An agent is three things: a model (an `LLMR::llm_config()`), a persona (a
 system prompt), and machinery around them: memory, tools, and budgets. This
-vignette builds one of each component. Examples use the open-weight `gpt-oss-20b` on
-Groq; set `GROQ_API_KEY` and `LLMRAGENT_RUN_VIGNETTES=true` to run them.
+vignette builds one of each component. Examples use `gpt-oss-20b` on Groq; set `GROQ_API_KEY` and `LLMRAGENT_RUN_VIGNETTES=true` to run them. If you do not have a key, follow [Set up a model](https://asanaei.github.io/LLMR/articles/setup.html).
 
 ```{r setup}
 library(LLMRagent)
